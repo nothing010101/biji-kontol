@@ -102,8 +102,17 @@ const CHAINS = Object.fromEntries(RAW.map(c=>[c.ID,c]));
 /* API base. "/api" -> served by local server.mjs which proxies to https://ape.store/api */
 const API = "/api";
 
-const ROUTER_ABI = ["function collectFees(address token) nonpayable"];
-const BATCH_ABI  = ["function collectFees(address routerAddress, address[] tokenaddresses) nonpayable"];
+// NOTE: do NOT add a `nonpayable` keyword here — ethers v6 rejects it and silently drops the
+// fragment, which makes ctr.collectFees undefined ("is not a function").
+const ROUTER_ABI = ["function collectFees(address token)"];
+const BATCH_ABI  = ["function collectFees(address routerAddress, address[] tokenaddresses)"];
+// Parse the ABIs up-front so a bad fragment fails loudly here instead of becoming a
+// confusing "ctr.collectFees is not a function" at claim time.
+const ROUTER_IFACE = new ethers.Interface(ROUTER_ABI);
+const BATCH_IFACE  = new ethers.Interface(BATCH_ABI);
+if(!ROUTER_IFACE.getFunction("collectFees") || !BATCH_IFACE.getFunction("collectFees")){
+  document.addEventListener("DOMContentLoaded", ()=>alert("ABI failed to parse — claim will not work. Please reload."));
+}
 const ERC20_ABI  = ["function symbol() view returns (string)","function name() view returns (string)"];
 
 const $ = s=>document.querySelector(s);
@@ -305,7 +314,7 @@ async function run(indexes){
         const idxs = v30.filter(t=>routerFor(t)===router).map(t=>TOKENS.indexOf(t));
         try{
           log(`  batch ${toks.length} token(s) via helper ${c.BatchHelper.slice(0,10)}… router ${router.slice(0,10)}…`);
-          const ctr = new ethers.Contract(c.BatchHelper, BATCH_ABI, signer);
+          const ctr = new ethers.Contract(c.BatchHelper, BATCH_IFACE, signer);
           const tx = await ctr.collectFees(router, toks);
           log(`    tx ${tx.hash}`);
           await tx.wait();
@@ -323,7 +332,7 @@ async function run(indexes){
       const router = routerFor(t), i = TOKENS.indexOf(t);
       setStatus(i,"claiming…","pill-warn");
       try{
-        const ctr = new ethers.Contract(router, ROUTER_ABI, signer);
+        const ctr = new ethers.Contract(router, ROUTER_IFACE, signer);
         log(`  ${t.symbol||""} ${t.address}`);
         const tx = await ctr.collectFees(t.address);
         log(`    tx ${tx.hash}`);
