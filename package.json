@@ -1,0 +1,7 @@
+{
+  "name": "apestore-fee-claimer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Scan ApeStore creator addresses and collect pool fees from any wallet.",
+  "engines": { "node": ">=18" }
+}
