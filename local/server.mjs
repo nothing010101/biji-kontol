@@ -12,6 +12,7 @@ import path from "node:path";
 
 const PORT = Number(process.env.PORT || 8787);
 const UPSTREAM = "https://ape.store";
+const UPSTREAM_CLANKER = "https://www.clanker.world";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const server = http.createServer(async (req, res) => {
@@ -20,7 +21,7 @@ const server = http.createServer(async (req, res) => {
 
     // ---- RPC proxy (mirrors api/rpc.js) ----
     if (url.pathname === "/api/rpc") {
-      const RPCS = { robinhood: "https://rpc.mainnet.chain.robinhood.com", base: "https://mainnet.base.org" };
+      const RPCS = { robinhood: "https://rpc.mainnet.chain.robinhood.com", base: "https://mainnet.base.org", eth: "https://cloudflare-eth.com", bsc: "https://bsc-dataseed.bnbchain.org", arbitrum: "https://arb1.arbitrum.io/rpc", unichain: "https://mainnet.unichain.org", monad: "https://nodes.sequence.app/monad" };
       const target = RPCS[url.searchParams.get("chain")];
       if (!target) { res.writeHead(400, { "content-type": "application/json" }); return res.end(JSON.stringify({ error: "unknown chain" })); }
       const chunks = [];
@@ -32,6 +33,14 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- API proxy (same allowlist as the Vercel functions) ----
+    if (url.pathname === "/api/clanker") {
+      const target = `${UPSTREAM_CLANKER}/api/tokens/fetch-deployed-by-address?address=${url.searchParams.get("address")}`;
+      const upstream = await fetch(target, { headers: { "user-agent": "Mozilla/5.0", accept: "application/json" } });
+      const body = await upstream.text();
+      res.writeHead(upstream.status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "access-control-allow-origin": "*" });
+      return res.end(body);
+    }
+
     if (url.pathname === "/api/config" || url.pathname.startsWith("/api/user/")) {
       const upstream = await fetch(UPSTREAM + url.pathname, {
         headers: { "user-agent": "Mozilla/5.0", accept: "application/json" },
