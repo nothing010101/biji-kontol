@@ -5,6 +5,11 @@
 const RPCS = {
   robinhood: "https://rpc.mainnet.chain.robinhood.com",
   base: "https://mainnet.base.org",
+  eth: "https://cloudflare-eth.com",
+  bsc: "https://bsc-dataseed.bnbchain.org",
+  arbitrum: "https://arb1.arbitrum.io/rpc",
+  unichain: "https://mainnet.unichain.org",
+  monad: "https://nodes.sequence.app/monad",
 };
 
 module.exports = async (req, res) => {
