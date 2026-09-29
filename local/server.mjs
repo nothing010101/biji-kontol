@@ -18,6 +18,19 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
 
+    // ---- RPC proxy (mirrors api/rpc.js) ----
+    if (url.pathname === "/api/rpc") {
+      const RPCS = { robinhood: "https://rpc.mainnet.chain.robinhood.com", base: "https://mainnet.base.org" };
+      const target = RPCS[url.searchParams.get("chain")];
+      if (!target) { res.writeHead(400, { "content-type": "application/json" }); return res.end(JSON.stringify({ error: "unknown chain" })); }
+      const chunks = [];
+      for await (const ch of req) chunks.push(ch);
+      const upstream = await fetch(target, { method: "POST", headers: { "content-type": "application/json" }, body: Buffer.concat(chunks) });
+      const body = await upstream.text();
+      res.writeHead(upstream.status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "access-control-allow-origin": "*" });
+      return res.end(body);
+    }
+
     // ---- API proxy (same allowlist as the Vercel functions) ----
     if (url.pathname === "/api/config" || url.pathname.startsWith("/api/user/")) {
       const upstream = await fetch(UPSTREAM + url.pathname, {
