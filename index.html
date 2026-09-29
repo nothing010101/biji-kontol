@@ -3,19 +3,21 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>ApeStore Fee Claimer</title>
+<title>Launchpad Fee Claimer</title>
 <style>
   :root{--bg:#0a0d12;--card:#12161d;--line:#232a35;--txt:#e7ecf3;--mut:#8b96a5;--acc:#2dd4bf;--warn:#fbbf24;--err:#f87171;--ok:#34d399}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 ui-sans-serif,system-ui,Segoe UI,Roboto,Arial}
-  .wrap{max-width:1100px;margin:0 auto;padding:24px}
+  .wrap{max-width:1200px;margin:0 auto;padding:24px}
   h1{font-size:20px;margin:0 0 4px}
-  .sub{color:var(--mut);margin:0 0 20px}
+  h2{font-size:15px;margin:0 0 8px}
+  .sub{color:var(--mut);margin:0 0 18px}
   .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
   label{display:block;font-weight:600;margin-bottom:6px}
   textarea{width:100%;min-height:120px;background:#0d1117;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:10px;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;resize:vertical}
   button{background:var(--acc);color:#04231f;border:0;border-radius:8px;padding:9px 14px;font-weight:700;cursor:pointer}
   button.sec{background:#1c232e;color:var(--txt);border:1px solid var(--line)}
+  button.tiny{padding:3px 8px;font-size:11px;border-radius:6px}
   button:disabled{opacity:.45;cursor:not-allowed}
   .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
   .mut{color:var(--mut)}
@@ -30,15 +32,16 @@
   .hide{display:none}
   .stat{display:flex;gap:18px;flex-wrap:wrap}
   .stat b{font-size:18px}
+  .sect{border-top:1px solid var(--line);margin-top:14px;padding-top:12px}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>ApeStore Fee Claimer</h1>
-  <p class="sub">Scan creator addresses → connect ANY wallet (pays gas only) → collect pool fees. Fees are always paid to the token's creator address.</p>
+  <h1>Launchpad Fee Claimer</h1>
+  <p class="sub">Scan creator addresses → connect ANY wallet (pays gas only) → collect fees. Fees always go to the claimable address, never to the caller.</p>
 
   <div class="card">
-    <label>Wallet (pays gas only, can be any wallet)</label>
+    <label>Wallet (pays gas)</label>
     <div class="row">
       <button id="connect">Connect wallet</button>
       <span id="wstat" class="mut">not connected</span>
@@ -47,82 +50,104 @@
 
   <div class="card">
     <label>Creator addresses to scan (one per line)</label>
-    <textarea id="addrs" spellcheck="false" placeholder="0x0000000000000000000000000000000000000000&#10;0x1111111111111111111111111111111111111111"></textarea>
+    <textarea id="addrs" spellcheck="false" placeholder="0x0000000000000000000000000000000000000000"></textarea>
     <div class="row" style="margin-top:10px">
       <button id="scan">Scan</button>
       <button id="clear" class="sec">Clear</button>
       <span id="sstat" class="mut"></span>
     </div>
-    <p class="note" style="margin-bottom:0">Data source: ApeStore API <span class="mono">/api/user/&lt;address&gt;</span> (via local proxy). Only tokens with protocol ≠ 2 (V3.0 / V3 / V4) are claimable.</p>
+    <p class="note" style="margin-bottom:0">
+      Sources: <b>ApeStore</b> (API) · <b>Pons v1 / v1.5</b> (Robinhood chain, on-chain) · <b>Noxa</b> (fun.noxa.eth.limo, on-chain).
+      V2 and non-claimable tokens are skipped and not shown.
+    </p>
   </div>
 
   <div id="rescard" class="card hide">
     <div class="stat" style="margin-bottom:10px">
       <div><div class="mut">Addresses</div><b id="naddr">0</b></div>
-      <div><div class="mut">Tokens found</div><b id="ntok">0</b></div>
-      <div><div class="mut">Claimable</div><b id="nclaim">0</b></div>
-      <div><div class="mut">Chains</div><b id="nchain">0</b></div>
+      <div><div class="mut">Pernah launch</div><b id="nlaunch">0</b></div>
+      <div><div class="mut">Bisa klaim</div><b id="nclaim">0</b></div>
+      <div><div class="mut">Tidak ada launch</div><b id="nnolaunch">0</b></div>
     </div>
     <div class="row" style="margin:10px 0">
       <button id="claimsel" disabled>Claim selected</button>
       <button id="claimall" class="sec" disabled>Claim all claimable</button>
+      <button id="copyclaim" class="sec">Copy semua alamat bisa klaim</button>
       <span id="cstat" class="mut"></span>
     </div>
     <pre id="log" class="mono hide" style="white-space:pre-wrap;background:#0d1117;border:1px solid var(--line);border-radius:8px;padding:10px;max-height:220px;overflow:auto;font-size:11px;margin:0 0 12px"></pre>
-    <table id="tbl">
-      <thead><tr>
-        <th style="width:34px"><input type="checkbox" id="chkall"/></th>
-        <th>Creator scanned</th><th>Chain</th><th>Token</th><th>Protocol</th><th>Router</th><th>Status</th>
-      </tr></thead>
-      <tbody></tbody>
-    </table>
-  </div>
 
+    <div id="sec-claim"></div>
+    <div id="sec-nofee"></div>
+    <div id="sec-nolaunch"></div>
+  </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
 <script>
-/* ---- ApeStore config (snapshot of https://ape.store/api/config) ---- */
+/* ================= config ================= */
 const RAW = [
- {"ID":8453,"Short":"base","Name":"Base","NativeToken":"ETH","NativeDecimals":18,"PublicRpc":"https://mainnet.base.org","ScannerUrl":"https://basescan.org","Wrapped":"0x4200000000000000000000000000000000000006","Active":true,
+ {"ID":8453,"Short":"base","Name":"Base","NativeToken":"ETH","PublicRpc":"https://mainnet.base.org","ScannerUrl":"https://basescan.org","Active":true,
   "ApeV30Routers":["0xb3bEa12AFC263318C16DC16DbFD5AB3A0261DABf","0xB1900F41d78D330A2a35C6771b3A6088a1b51309"],
   "ApeV3Routers":["0x2D0d55E8d4418ce6157Cf31d9ffafB88117C0040"],
   "ApeV4Routers":["0xd299cbec046bb4a419db3b98e1d134f271108040"],
-  "ApeRouters":["0xF6Af6C034E92694A4c79569B03543d580df402D7","0x992D40d9ED8937Bb0Ad3c0Ba99713072Ae0a05b3","0x135De7F9223C76b7d0278FFe854eC480D37FE906","0x3ccC78545F675A188B7521F7f4b4791995752635","0x0bf8edd756ff6caf3f583d67a9fd8b237e40f58a","0xc750af290bb41ca5dEC04F22CD1318e940Dd826a"],
-  "BatchHelper":"0x533c68360bE3e0caC63d70ccd5768AcCe2495818"},
- {"ID":1,"Short":"eth","Name":"Ethereum","NativeToken":"ETH","NativeDecimals":18,"PublicRpc":"https://cloudflare-eth.com","ScannerUrl":"https://etherscan.io","Wrapped":"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2","Active":false,"ApeV30Routers":[],"ApeV3Routers":[],"ApeV4Routers":[],"ApeRouters":["0xA7d854eAf481846f7dA8CC863a46aC1F67b548D8"]},
- {"ID":56,"Short":"bsc","Name":"BNB","NativeToken":"BNB","NativeDecimals":18,"PublicRpc":"https://bsc-dataseed.bnbchain.org","ScannerUrl":"https://bscscan.com","Wrapped":"0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c","Active":false,
+  "ApeRouters":[], "BatchHelper":"0x533c68360bE3e0caC63d70ccd5768AcCe2495818"},
+ {"ID":1,"Short":"eth","Name":"Ethereum","NativeToken":"ETH","PublicRpc":"https://cloudflare-eth.com","ScannerUrl":"https://etherscan.io","Active":false,
+  "ApeV30Routers":[],"ApeV3Routers":[],"ApeV4Routers":[],"ApeRouters":["0xA7d854eAf481846f7dA8CC863a46aC1F67b548D8"]},
+ {"ID":56,"Short":"bsc","Name":"BNB","NativeToken":"BNB","PublicRpc":"https://bsc-dataseed.bnbchain.org","ScannerUrl":"https://bscscan.com","Active":false,
   "ApeV30Routers":["0xE2C1d43E94c4f64AAd4a4DBcb9f8f7405D78c1eB"],"ApeV3Routers":[],"ApeV4Routers":[],"ApeRouters":["0xEB452eB6CF25292E4407B8833C142511B166F711"]},
- {"ID":4663,"Short":"robinhood","Name":"RobinHood","NativeToken":"ETH","NativeDecimals":18,"PublicRpc":"https://rpc.mainnet.chain.robinhood.com","ScannerUrl":"https://robinhoodchain.blockscout.com","Wrapped":"0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73","Active":true,
+ {"ID":4663,"Short":"robinhood","Name":"RobinHood","NativeToken":"ETH","PublicRpc":"https://rpc.mainnet.chain.robinhood.com","ScannerUrl":"https://robinhoodchain.blockscout.com","Active":true,
   "ApeV30Routers":["0x6e4910ea5A04376032F6564da9a9E4E88B7a87C1"],"ApeV3Routers":[],"ApeV4Routers":[],"ApeRouters":["0x2211C504DBbD87D4401f3533933E46bDd0E3F32c"],
   "BatchHelper":"0xD43a07f788C7D293271f1b0F3d871E132edd7E11"}
 ];
 const CHAINS = Object.fromEntries(RAW.map(c=>[c.ID,c]));
-
-/* API base. "/api" -> served by local server.mjs which proxies to https://ape.store/api */
 const API = "/api";
 
-// NOTE: do NOT add a `nonpayable` keyword here — ethers v6 rejects it and silently drops the
-// fragment, which makes ctr.collectFees undefined ("is not a function").
-const ROUTER_ABI = ["function collectFees(address token)"];
-const BATCH_ABI  = ["function collectFees(address routerAddress, address[] tokenaddresses)"];
-// Parse the ABIs up-front so a bad fragment fails loudly here instead of becoming a
-// confusing "ctr.collectFees is not a function" at claim time.
-const ROUTER_IFACE = new ethers.Interface(ROUTER_ABI);
-const BATCH_IFACE  = new ethers.Interface(BATCH_ABI);
-if(!ROUTER_IFACE.getFunction("collectFees") || !BATCH_IFACE.getFunction("collectFees")){
-  document.addEventListener("DOMContentLoaded", ()=>alert("ABI failed to parse — claim will not work. Please reload."));
-}
-const ERC20_ABI  = ["function symbol() view returns (string)","function name() view returns (string)"];
+// On-chain launchpads on Robinhood chain (chain 4663).
+// Locker holds deployerTokens(deployer,i) + collectFees(token).
+const LAUNCHPADS = [
+  { key:"pons-v1",   label:"Pons v1",   chain:4663, factory:"0xA5aAb3F0c6EeadF30Ef1D3Eb997108E976351feB", locker:"0x736D76699C26D0d966744cAe304C000d471f7F35", hasCount:true },
+  { key:"pons-v1.5", label:"Pons v1.5", chain:4663, factory:"0xF4fC0CD27fC8EcF17E55eE4c3f7201897dF3eb75", locker:"0x10F2756e373bAb14999fdC9177587D51D30a1Cf5", hasCount:true },
+  { key:"noxa",      label:"Noxa",      chain:4663, factory:"0xD9eC2db5f3D1b236843925949fe5bd8a3836FCcB", locker:"0x7F03effbd7ceB22A3f80Dd468f67eF27826acD85", hasCount:false },
+];
 
+/* ================= helpers ================= */
 const $ = s=>document.querySelector(s);
 const el = (t,c,txt)=>{const e=document.createElement(t); if(c)e.className=c; if(txt!=null)e.textContent=txt; return e;};
-let TOKENS = [];              // scanned rows
+const ZERO = "0x0000000000000000000000000000000000000000";
+const ROUTER_IFACE = new ethers.Interface(["function collectFees(address token)"]);
+const LOCKER_IFACE = new ethers.Interface([
+  "function collectFees(address token)",
+  "function deployerTokenCount(address) view returns (uint256)",
+  "function deployerTokens(address,uint256) view returns (address)",
+  "function feeRedirects(address) view returns (address)",
+  "function feeCollectors(address) view returns (bool)",
+]);
+const ERC20_IFACE = new ethers.Interface(["function symbol() view returns (string)"]);
+
+let TOKENS = [];   // rows
+let ADDRESSES = []; // pasted
 let PROVIDER = null, ACCOUNT = null;
 
-/* ---------------- wallet ---------------- */
+/* ---- JSON-RPC through the local/Vercel proxy (chain RPCs have no CORS) ---- */
+let rpcId = 1;
+async function rpc(chainKey, method, params){
+  const r = await fetch(`${API}/rpc?chain=${chainKey}`, {
+    method:"POST", headers:{"content-type":"application/json"},
+    body: JSON.stringify({jsonrpc:"2.0", id: rpcId++, method, params}),
+  });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+  return j.result;
+}
+const chainKey = id => (CHAINS[id] && CHAINS[id].Short) || String(id);
+async function call(chainId, to, data){
+  return rpc(chainKey(chainId), "eth_call", [{to, data}, "latest"]);
+}
+
+/* ================= wallet ================= */
 $("#connect").onclick = async ()=>{
-  if(!window.ethereum){ alert("No injected wallet found (MetaMask / Rabby / Coinbase Wallet)."); return; }
+  if(!window.ethereum){ alert("No injected wallet (MetaMask / Rabby / Coinbase Wallet)."); return; }
   try{
     const accs = await window.ethereum.request({method:"eth_requestAccounts"});
     PROVIDER = new ethers.BrowserProvider(window.ethereum);
@@ -133,215 +158,253 @@ $("#connect").onclick = async ()=>{
   }catch(e){ alert("Connect failed: "+(e.shortMessage||e.message)); }
 };
 if(window.ethereum){
-  window.ethereum.on && window.ethereum.on("accountsChanged", (a)=>{ ACCOUNT=a&&a[0]; if(!ACCOUNT){$("#wstat").textContent="not connected";} else $("#wstat").textContent=ACCOUNT.slice(0,6)+"…"+ACCOUNT.slice(-4); refreshButtons(); });
-  window.ethereum.on && window.ethereum.on("chainChanged", async ()=>{ if(PROVIDER){const n=await PROVIDER.getNetwork(); $("#wstat").textContent=`${(ACCOUNT||"").slice(0,6)}…${(ACCOUNT||"").slice(-4)} · chain ${n.chainId}`; }});
+  window.ethereum.on && window.ethereum.on("accountsChanged", a=>{ ACCOUNT=a&&a[0]; $("#wstat").textContent = ACCOUNT?(ACCOUNT.slice(0,6)+"…"+ACCOUNT.slice(-4)):"not connected"; refreshButtons(); });
 }
 
-/* ---------------- discovery ---------------- */
+/* ================= scan ================= */
 $("#clear").onclick = ()=>{ $("#addrs").value=""; TOKENS=[]; $("#rescard").classList.add("hide"); $("#log").classList.add("hide"); };
 
 $("#scan").onclick = async ()=>{
   const list = [...new Set($("#addrs").value.split(/[\s,;]+/).map(s=>s.trim()).filter(s=>/^0x[0-9a-fA-F]{40}$/.test(s)))];
-  if(!list.length){ alert("Enter at least one valid 0x… address."); return; }
-  $("#scan").disabled = true; $("#sstat").textContent = `scanning 0/${list.length}…`;
+  if(!list.length){ alert("Masukkan minimal satu alamat 0x…"); return; }
+  ADDRESSES = list;
   TOKENS = [];
-  try{
-    for(let i=0;i<list.length;i++){
-      const a = list[i];
-      try{
-        const r = await fetch(`${API}/user/${a}`);
-        if(!r.ok) throw new Error("HTTP "+r.status);
-        const j = await r.json();
-        for(const t of (j.tokens||[])) TOKENS.push({owner:a, ...t});
-      }catch(e){
-        TOKENS.push({owner:a, __error:(e.message||String(e))});
-      }
-      $("#sstat").textContent = `scanning ${i+1}/${list.length}…`;
-    }
-    render(list.length);
-    $("#sstat").textContent = "done";
-  }finally{ $("#scan").disabled=false; }
+  $("#scan").disabled = true;
+  for(let i=0;i<list.length;i++){
+    const a = list[i];
+    $("#sstat").textContent = `scanning ${i+1}/${list.length}…`;
+    await scanOne(a);
+  }
+  $("#sstat").textContent = "done";
+  $("#scan").disabled = false;
+  render();
 };
 
-function routerFor(t){
+async function scanOne(addr){
+  // ---- ApeStore (off-chain API) ----
+  try{
+    const r = await fetch(`${API}/user/${addr}`);
+    const j = await r.json();
+    for(const t of (j.tokens||[])){
+      const router = apeRouterFor(t);
+      if(!router || Number(t.protocol)===2) continue;   // skip v2 / non-claimable — not shown
+      TOKENS.push({ source:"ApeStore", sourceLabel: CHAINS[t.chain] ? "ApeStore "+CHAINS[t.chain].Name : "ApeStore",
+        owner:addr, chain:t.chain, token:t.address, symbol:t.symbol||"", protocol:t.protocol,
+        target:router, kind:"router", state:"claimable", fee:"unknown" });
+    }
+  }catch(e){ /* address may simply have no ApeStore tokens */ }
+
+  // ---- Pons / Noxa (on-chain, Robinhood) ----
+  for(const lp of LAUNCHPADS){
+    let tokens = [];
+    try{ tokens = await lockerTokens(lp, addr); }
+    catch(e){ log(`  ! ${lp.label} read failed for ${addr}: ${errMsg(e)}`); continue; }
+    for(const t of tokens){
+      const check = await simClaim(lp, t, addr);
+      const row = { source:lp.key, sourceLabel:lp.label, owner:addr, chain:lp.chain, token:t,
+        symbol:"", protocol:null, target:lp.locker, kind:"locker",
+        state: check.ok ? "claimable" : (check.reason==="NotAuthorized" ? "notclaimable" : "nofee"),
+        fee: check.ok ? "yes" : "no" };
+      if(row.state==="notclaimable") continue;    // bukan alamat yang berhak klaim → tidak ditampilkan
+      TOKENS.push(row);
+    }
+  }
+}
+
+function apeRouterFor(t){
   const c = CHAINS[t.chain]; if(!c) return null;
   const p = Number(t.protocol);
   if(p===2) return null;
-  const arr = p===3 ? c.ApeV3Routers : p===4 ? (c.ApeV4Routers && c.ApeV4Routers.length ? c.ApeV4Routers : c.ApeV3Routers) : c.ApeV30Routers;
+  const arr = p===3 ? c.ApeV3Routers : p===4 ? (c.ApeV4Routers&&c.ApeV4Routers.length?c.ApeV4Routers:c.ApeV3Routers) : c.ApeV30Routers;
   if(!arr || !arr.length) return null;
   const idx = Number(t.router||0);
   return arr[idx] ?? arr[arr.length-1] ?? null;
 }
 
-function render(nAddr){
-  const tb = $("#tbl tbody"); tb.innerHTML="";
-  let claimable=0; const chains=new Set();
-  TOKENS.forEach((t,i)=>{
-    const tr = document.createElement("tr");
-    const r = t.__error ? null : routerFor(t);
-    const can = !!r && !t.__error;
-    if(can){ claimable++; chains.add(t.chain); }
-    const td0 = el("td"); const cb = el("input"); cb.type="checkbox"; cb.checked=can; cb.disabled=!can; cb.dataset.i=i; td0.appendChild(cb);
-    const chain = CHAINS[t.chain];
-    tr.append(
-      td0,
-      el("td", null, t.owner),
-      el("td", null, chain ? chain.Name+" (#"+t.chain+")" : "#"+t.chain),
-      el("td", null, t.__error ? "(scan error)" : `${t.symbol||"?"} · ${(t.address||"").slice(0,10)}…`),
-      el("td", null, t.__error ? t.__error : (t.protocol===30?"V3.0":t.protocol===3?"V3":t.protocol===4?"V4":"V"+t.protocol)),
-      el("td", null, r? r.slice(0,10)+"…" : "—"),
-      (()=>{const s=el("td"); s.appendChild(el("span", can?"tag pill-ok":"tag pill-warn", can?"claimable":"skipped")); s.dataset.st=i; return s;})()
-    );
-    tb.appendChild(tr);
-  });
-  $("#naddr").textContent = nAddr;
-  $("#ntok").textContent = TOKENS.filter(t=>!t.__error).length;
-  $("#nclaim").textContent = claimable;
-  $("#nchain").textContent = chains.size;
+async function lockerTokens(lp, deployer){
+  const out = [];
+  let n = null;
+  if(lp.hasCount){
+    try{
+      const raw = await call(lp.chain, lp.locker, LOCKER_IFACE.encodeFunctionData("deployerTokenCount",[deployer]));
+      if(raw && raw.length >= 66) n = Number(BigInt(raw));
+    }catch(e){ n = null; }
+  }
+  const cap = n==null ? 500 : Math.min(n, 1000);
+  for(let i=0;i<cap;i++){
+    let t;
+    try{
+      const raw = await call(lp.chain, lp.locker, LOCKER_IFACE.encodeFunctionData("deployerTokens",[deployer,i]));
+      t = "0x"+raw.slice(26).toLowerCase();
+    }catch(e){ break; }
+    if(t===ZERO) break;
+    out.push(t);
+  }
+  return out;
+}
+
+// eth_call collectFees from the address itself: success = it is the claimable address AND fees exist.
+const NoAuthSel = new ethers.Interface(["error NotAuthorized()"]).getError("NotAuthorized").selector;
+const NoFeesSel = new ethers.Interface(["error NoFeesToCollect()"]).getError("NoFeesToCollect").selector;
+async function simClaim(lp, token, from){
+  const data = LOCKER_IFACE.encodeFunctionData("collectFees",[token]);
+  try{
+    await rpc(chainKey(lp.chain), "eth_call", [{to: lp.locker, data, from}, "latest"]);
+    return {ok:true};
+  }catch(e){
+    const msg = String((e && e.message) || "");
+    const m = msg.match(/0x[0-9a-fA-F]{8}/);
+    const sel = m ? m[0] : null;
+    if(sel === NoAuthSel) return {ok:false, reason:"NotAuthorized"};
+    if(sel === NoFeesSel) return {ok:false, reason:"NoFeesToCollect"};
+    return {ok:false, reason:"other", detail: msg.slice(0,120)};
+  }
+}
+
+/* ================= render ================= */
+function render(){
+  const claim = TOKENS.filter(t=>t.state==="claimable");
+  const nofee = TOKENS.filter(t=>t.state==="nofee");
+  const launched = new Set([...claim,...nofee].map(t=>t.owner.toLowerCase()));
+  const nolaunch = ADDRESSES.filter(a=>!launched.has(a.toLowerCase()));
+
+  $("#naddr").textContent = ADDRESSES.length;
+  $("#nlaunch").textContent = launched.size;
+  $("#nclaim").textContent = new Set(claim.map(t=>t.owner.toLowerCase())).size;
+  $("#nnolaunch").textContent = nolaunch.length;
+
+  $("#sec-claim").replaceChildren(section("Bisa klaim", claim, true, "#34d399"));
+  $("#sec-nofee").replaceChildren(section("Pernah launch tapi belum ada fee", nofee, false, "#fbbf24"));
+  $("#sec-nolaunch").replaceChildren(section("Tidak ada interaksi launch (ApeStore / Pons / Noxa)", nolaunch.map(a=>({owner:a})), false, "#8b96a5"));
   $("#rescard").classList.remove("hide");
   refreshButtons();
 }
-function selectedIndexes(){ return [...document.querySelectorAll("#tbl tbody input[type=checkbox]:checked")].map(c=>Number(c.dataset.i)); }
-function refreshButtons(){
-  const sel = selectedIndexes().length;
-  $("#claimsel").disabled = !(ACCOUNT && sel);
-  $("#claimall").disabled = !ACCOUNT;
-}
-$("#chkall").onchange = e=>{ document.querySelectorAll("#tbl tbody input[type=checkbox]").forEach(c=>{ if(!c.disabled) c.checked=e.target.checked; }); refreshButtons(); };
-document.addEventListener("change", e=>{ if(e.target.matches("#tbl tbody input[type=checkbox]")) refreshButtons(); });
 
-/* ---------------- claiming ---------------- */
-const LOG = [];
-function log(s){ LOG.push(s); const p=$("#log"); p.classList.remove("hide"); p.textContent = LOG.join("\n"); p.scrollTop = p.scrollHeight; }
+function section(title, rows, withCheckbox, color){
+  const box = el("div","sect");
+  box.appendChild(el("h2",null,`${title} — ${rows.length}`));
+  if(!rows.length){ box.appendChild(el("p","mut","—")); return box; }
+  if(rows.length && rows[0].owner && !rows[0].token){
+    // simple address list
+    for(const r of rows){
+      const line = el("div","row");
+      line.appendChild(el("span","mono",r.owner));
+      line.appendChild(copyBtn(r.owner));
+      box.appendChild(line);
+    }
+    return box;
+  }
+  const tb = el("table");
+  const thead = el("thead"); const trh = el("tr");
+  if(withCheckbox) trh.appendChild(el("th",null,""));
+  ["Alamat","Sumber","Token","Status",""].forEach(h=>trh.appendChild(el("th",null,h)));
+  thead.appendChild(trh); tb.appendChild(thead);
+  const tb2 = el("tbody");
+  rows.forEach((t,i)=>{
+    const tr = el("tr");
+    if(withCheckbox){
+      const td = el("td"); const cb = el("input"); cb.type="checkbox"; cb.checked=true;
+      cb.dataset.row = TOKENS.indexOf(t); cb.onchange = refreshButtons; td.appendChild(cb); tr.appendChild(td);
+    }
+    tr.appendChild(el("td","mono",t.owner));
+    tr.appendChild(el("td",null,t.sourceLabel));
+    const tok = el("td","mono", (t.symbol? t.symbol+" · ":"") + t.token.slice(0,10)+"…");
+    const a = el("a",null,"↗"); a.href = explorerFor(t.chain)+"/address/"+t.token; a.target="_blank"; a.rel="noopener";
+    tok.append(document.createTextNode(" "), a);
+    tr.appendChild(tok);
+    const st = el("td");
+    st.appendChild(el("span","tag", color && t.state==="claimable" ? "pill-ok" : "pill-warn",
+      t.state==="claimable" ? "bisa klaim" : t.state==="nofee" ? "belum ada fee" : t.state));
+    tr.appendChild(st);
+    const act = el("td"); act.appendChild(copyBtn(t.owner)); tr.appendChild(act);
+    tb2.appendChild(tr);
+  });
+  tb.appendChild(tb2); box.appendChild(tb);
+  return box;
+}
+function explorerFor(chainId){ const c=CHAINS[chainId]; return c?c.ScannerUrl:"#"; }
+function copyBtn(text){
+  const b = el("button","sec tiny","Copy alamat");
+  b.onclick = async ()=>{ try{ await navigator.clipboard.writeText(text); b.textContent="Copied ✓"; setTimeout(()=>b.textContent="Copy alamat",1400); }catch(e){ b.textContent="Gagal copy"; } };
+  return b;
+}
+function selectedRows(){
+  const ids = [...document.querySelectorAll("#sec-claim input[type=checkbox]:checked")].map(c=>Number(c.dataset.row));
+  return ids.map(i=>TOKENS[i]).filter(Boolean);
+}
+function refreshButtons(){ const n=selectedRows().length; $("#claimsel").disabled = !(ACCOUNT && n); $("#claimall").disabled = !ACCOUNT; }
+$("#copyclaim").onclick = async ()=>{
+  const addrs = [...new Set(TOKENS.filter(t=>t.state==="claimable").map(t=>t.owner))];
+  if(!addrs.length){ alert("Belum ada alamat yang bisa klaim."); return; }
+  try{ await navigator.clipboard.writeText(addrs.join("\n")); $("#copyclaim").textContent=`Copied ${addrs.length} ✓`; setTimeout(()=>$("#copyclaim").textContent="Copy semua alamat bisa klaim",1600); }
+  catch(e){ alert("Copy gagal"); }
+};
+
+/* ================= logging ================= */
+const LOGLINES = [];
+function log(s){ LOGLINES.push(s); const p=$("#log"); p.classList.remove("hide"); p.textContent = LOGLINES.join("\n"); p.scrollTop = p.scrollHeight; }
 function errMsg(e){
   const info = e && e.info && e.info.error;
   return (e && (e.shortMessage || (info && (info.message || info.data)) || e.message)) || String(e);
 }
-function setStatus(i, txt, cls, detail){
-  const td=document.querySelector(`#tbl tbody td[data-st="${i}"]`);
-  if(!td) return;
-  td.innerHTML="";
-  const sp = el("span","tag "+(cls||""), txt);
-  if(detail) sp.title = detail;
-  td.appendChild(sp);
-  if(detail){
-    const d = el("div","mut", detail.length>110 ? detail.slice(0,110)+"…" : detail);
-    d.style.fontSize="10px"; d.style.lineHeight="1.3"; d.style.marginTop="3px"; d.style.wordBreak="break-word";
-    td.appendChild(d);
-  }
+function setStatus(row, txt, cls, detail){
+  const idx = TOKENS.indexOf(row); if(idx<0) return;
+  const cb = document.querySelector(`#sec-claim input[data-row="${idx}"]`);
+  const td = cb ? cb.closest("td").parentElement.lastElementChild : null;
+  if(td){ td.innerHTML=""; td.appendChild(el("span","tag "+(cls||""), txt)); if(detail) td.title=detail; }
 }
 
-function chainParams(id){
-  const c = CHAINS[id];
-  return { chainId:"0x"+id.toString(16), chainName:c.Name, nativeCurrency:{name:c.NativeToken,symbol:c.NativeToken,decimals:18}, rpcUrls:[c.PublicRpc], blockExplorerUrls:[c.ScannerUrl] };
-}
+/* ================= claim ================= */
+const chainParams = id => { const c=CHAINS[id]; return { chainId:"0x"+id.toString(16), chainName:c.Name, nativeCurrency:{name:c.NativeToken,symbol:c.NativeToken,decimals:18}, rpcUrls:[c.PublicRpc], blockExplorerUrls:[c.ScannerUrl] }; };
 async function ensureChain(id){
   let provider = new ethers.BrowserProvider(window.ethereum);
   let net = await provider.getNetwork();
   if(Number(net.chainId)===id) return provider;
-  const hex = "0x"+id.toString(16);
-  try{
-    await window.ethereum.request({method:"wallet_switchEthereumChain", params:[{chainId:hex}]});
-  }catch(e){
-    if(e && (e.code===4902 || e.code===-32603)) {
-      await window.ethereum.request({method:"wallet_addEthereumChain", params:[chainParams(id)]});
-    } else throw e;
-  }
+  const hex="0x"+id.toString(16);
+  try{ await window.ethereum.request({method:"wallet_switchEthereumChain", params:[{chainId:hex}]}); }
+  catch(e){ if(e && (e.code===4902 || e.code===-32603)) await window.ethereum.request({method:"wallet_addEthereumChain", params:[chainParams(id)]}); else throw e; }
   provider = new ethers.BrowserProvider(window.ethereum);
   net = await provider.getNetwork();
-  if(Number(net.chainId)!==id) throw new Error(`wallet still on chain ${net.chainId}`);
+  if(Number(net.chainId)!==id) throw new Error(`wallet masih di chain ${net.chainId}`);
   return provider;
 }
 
-$("#claimsel").onclick = ()=>run(selectedIndexes());
-$("#claimall").onclick = ()=>{ $("#chkall").checked = true; document.querySelectorAll("#tbl tbody input[type=checkbox]").forEach(c=>{ if(!c.disabled) c.checked=true; }); refreshButtons(); run(selectedIndexes()); };
+$("#claimsel").onclick = ()=>runClaim(selectedRows());
+$("#claimall").onclick = ()=>runClaim(TOKENS.filter(t=>t.state==="claimable"));
 
-async function run(indexes){
-  if(!ACCOUNT){ alert("Connect a wallet first."); return; }
-  const items = indexes.map(i=>TOKENS[i]).filter(t=>t && !t.__error && routerFor(t));
-  if(!items.length){ alert("Nothing selected."); return; }
-  // rough tx-count estimate: batched V3.0 (helper chains) counts 1 per router, everything else 1 per token
-  let est = 0;
-  {
-    const byC = {};
-    for(const t of items) (byC[t.chain] ||= []).push(t);
-    for(const [cidS, list] of Object.entries(byC)){
-      const c = CHAINS[Number(cidS)];
-      const v30 = list.filter(t=>Number(t.protocol)===30);
-      est += list.length - v30.length;
-      if(c.BatchHelper) est += new Set(v30.map(routerFor)).size;
-      else est += v30.length;
-    }
-  }
-  if(est > 20 && !confirm(`This will send about ${est} transaction(s) (${items.length} token(s)). Continue?`)) return;
+async function runClaim(rows){
+  if(!ACCOUNT){ alert("Connect wallet dulu."); return; }
+  if(!rows.length){ alert("Tidak ada yang dipilih."); return; }
+  if(rows.length>20 && !confirm(`Akan mengirim sekitar ${rows.length} transaksi. Lanjut?`)) return;
   $("#claimsel").disabled = $("#claimall").disabled = true;
-  try{ $("#log").scrollIntoView({behavior:"smooth", block:"nearest"}); }catch(e){}
+  try{ $("#log").scrollIntoView({behavior:"smooth",block:"nearest"}); }catch(e){}
 
-  // group by chain
   const byChain = {};
-  for(const t of items){ (byChain[t.chain] ||= []).push(t); }
+  for(const t of rows) (byChain[t.chain] ||= []).push(t);
 
   let ok=0, fail=0;
-  for(const [cidStr, list] of Object.entries(byChain)){
-    const cid = Number(cidStr);
-    const c = CHAINS[cid];
-    log(`\n— ${c.Name} (${cid}) — ${list.length} token(s)`);
+  for(const [cidS, list] of Object.entries(byChain)){
+    const cid = Number(cidS), c = CHAINS[cid];
+    log(`\n— ${c.Name} (${cid}) — ${list.length} token`);
     let provider;
     try{ provider = await ensureChain(cid); }
-    catch(e){ const m=errMsg(e); log(`  ✗ switch/add chain failed: ${m}`); list.forEach(t=>{ fail++; setStatus(TOKENS.indexOf(t),"chain error","pill-err",m); }); continue; }
+    catch(e){ const m=errMsg(e); log(`  ✗ chain: ${m}`); list.forEach(t=>{ fail++; setStatus(t,"chain error","pill-err",m); }); continue; }
     const signer = await provider.getSigner();
 
-    // preflight: the caller (not the creator) pays gas — warn early if the wallet has none
-    try{
-      const acct = await signer.getAddress();
-      const bal = await provider.getBalance(acct);
-      log(`  wallet ${acct} balance on ${c.Name}: ${ethers.formatEther(bal)} ${c.NativeToken}`);
-      if(bal === 0n){
-        const m = `0 ${c.NativeToken} on ${c.Name} — the connected wallet pays the gas and has no balance here`;
-        log(`  ✗ ${m}`);
-        list.forEach(t=>{ fail++; setStatus(TOKENS.indexOf(t),"no gas","pill-err",m); });
-        continue;
-      }
-    }catch(e){ log(`  ! balance check failed: ${errMsg(e)}`); }
-
-    // batch path: protocol 30 only, and helper exists
-    const v30 = list.filter(t=>Number(t.protocol)===30);
-    const rest = list.filter(t=>Number(t.protocol)!==30);
-    if(c.BatchHelper && v30.length>1){
-      const byRouter = {};
-      for(const t of v30){ (byRouter[routerFor(t)] ||= []).push(t.address); }
-      for(const [router, toks] of Object.entries(byRouter)){
-        const idxs = v30.filter(t=>routerFor(t)===router).map(t=>TOKENS.indexOf(t));
-        try{
-          log(`  batch ${toks.length} token(s) via helper ${c.BatchHelper.slice(0,10)}… router ${router.slice(0,10)}…`);
-          const ctr = new ethers.Contract(c.BatchHelper, BATCH_IFACE, signer);
-          const tx = await ctr.collectFees(router, toks);
-          log(`    tx ${tx.hash}`);
-          await tx.wait();
-          ok += toks.length;
-          idxs.forEach(i=>setStatus(i,"claimed","pill-ok"));
-        }catch(e){
-          const m=errMsg(e);
-          log(`    ✗ batch failed: ${m}`);
-          idxs.forEach(i=>setStatus(i,"failed","pill-err",m)); fail += toks.length;
-        }
-      }
-    } else rest.push(...v30);
-
-    for(const t of rest){
-      const router = routerFor(t), i = TOKENS.indexOf(t);
-      setStatus(i,"claiming…","pill-warn");
+    for(const t of list){
+      const abi = t.kind==="locker" ? LOCKER_IFACE : ROUTER_IFACE;
+      setStatus(t,"claiming…","pill-warn");
       try{
-        const ctr = new ethers.Contract(router, ROUTER_IFACE, signer);
-        log(`  ${t.symbol||""} ${t.address}`);
-        const tx = await ctr.collectFees(t.address);
+        const ctr = new ethers.Contract(t.target, abi, signer);
+        log(`  ${t.sourceLabel} ${t.token}`);
+        const tx = await ctr.collectFees(t.token);
         log(`    tx ${tx.hash}`);
         await tx.wait();
-        setStatus(i,"claimed","pill-ok"); ok++;
+        setStatus(t,"claimed","pill-ok"); ok++;
       }catch(e){
-        const m=errMsg(e);
+        const m = errMsg(e);
         log(`    ✗ ${m}`);
-        setStatus(i,"failed","pill-err",m); fail++;
+        setStatus(t,"failed","pill-err",m); fail++;
       }
     }
   }
@@ -349,9 +412,6 @@ async function run(indexes){
   $("#claimsel").disabled = $("#claimall").disabled = false;
   refreshButtons();
 }
-
-/* prefill demo */
-$("#addrs").placeholder = "0x72f5674E04D54658Dcf4301A582930a0d32782C8\n(one creator address per line)";
 </script>
 </body>
 </html>
