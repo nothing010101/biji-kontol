@@ -1,6 +1,6 @@
-# Base Fee Claimer — ApeStore & Clanker
+# Base Fee Claimer — ApeStore · Clanker · CARLOS
 
-Scan a list of creator wallet addresses → connect **any** wallet (it only pays gas) → collect pool fees on **Base (8453)** from **ApeStore** and **Clanker**.
+Scan a list of creator wallet addresses → connect **any** wallet (it only pays gas) → collect pool fees on **Base (8453)** from **ApeStore** and **Clanker**, and detect **locked token positions left in the CARLOS locker**.
 Fees are always paid by the protocol to the token's creator / fee owner — never to whoever presses the button.
 
 Base chain only. RobinHood chain, Pons and Noxa were removed.
@@ -12,7 +12,9 @@ index.html            the whole app (single page, ethers v6 from CDN)
 api/user/[address].js Vercel function — proxies GET /api/user/:address  -> ape.store
 api/config.js         Vercel function — proxies GET /api/config         -> ape.store
 api/clanker.js        Vercel function — proxies GET /api/clanker?address= -> clanker.world
+carlos-locks.json     static candidate map: CARLOS owner -> locked token(s) (from Locked() events)
 local/server.mjs      local dev server (not deployed) — serves the page + same proxies
+local/refresh-carlos-locks.mjs  rebuilds carlos-locks.json from CARLOS locker logs
 package.json          engines/node hint for Vercel
 ```
 
@@ -97,8 +99,51 @@ Legacy official path (v0–v3.1): `ClankerSafeErc20Spender 0x10F4485d6f90239B72c
 The UI marks legacy rows with **“butuh wallet deployer/creator”**; v4 rows are claimable by the connected wallet.
 `availableFees` is used to show whether a v4 token currently has fees.
 
+## CARLOS — locked positions in the LOCKER (Base)
+
+CARLOS launches tokens through a **launcher** and parks creator/owner tokens in a **locker**:
+
+- Launcher (proxy): `0x31C0282Fa6D0A82aD22ab63BbaCd87F62B2a9bfD`
+- Locker (proxy): `0x72415Ec67374cc09bC5dE621b052300016cEcf60`
+
+Locker ABI (relevant parts):
+
+```solidity
+locks(address token, address user) view returns (uint256 amount, uint256 unlockTime);
+function withdraw(address token);            // only the lock owner (msg.sender) can call
+function sellPresale(address token, uint256 amount, uint256 minOut); // on the launcher
+```
+
+**How discovery works (no 4 500-index enumeration).** The launcher's `presales(uint256)` mapping is sparse
+(max index ~4 299), so brute-force scanning it is wasteful. Instead `carlos-locks.json` is built once from the
+locker's `Locked(address token, address depositor, uint256 amount, uint256 unlockTime)` event logs — the
+definitive list of every token ever locked and its owner (364 owners / 551 positions at snapshot).
+
+At scan time, for each address the app:
+
+1. looks up the candidate token(s) in `carlos-locks.json`;
+2. reads `locks(token, owner)` (amount + unlock time) and `balanceOf(locker)` / `balanceOf(owner)`;
+3. simulates `withdraw(token)` and `sellPresale(token, amount, 0)` with `eth_call` from the owner.
+
+The **CARLOS** section shows amount locked, unlock date, locker balance, wallet balance, and
+**withdraw YA/TIDAK** / **sellPresale YA/TIDAK**, plus a **Copy laporan** button that emits the plain-text
+per-address report ending in `total alamat dengan posisi terkunci = N`.
+
+`withdraw` is a **creator/owner** action (it pays the caller), so the connected wallet must be the lock owner.
+
+### Rebuilding the map
+
+```bash
+node local/refresh-carlos-locks.mjs    # writes carlos-locks.json
+```
+
+It reads the locker's logs through `r.jina.ai` (the Blockscout API is Cloudflare-protected) and follows the
+cursor until every page is read. Re-run it after new launches to refresh the candidate list.
+
 ## Notes & limits
 
 - The connected wallet does **not** have to be the creator for ApeStore or Clanker v4 — that is the point of "connect any wallet".
 - ApeStore's API does not expose a pending-fee amount, so the app cannot show how much a token will pay.
 - Legacy Clanker rows cannot be fee-checked off-chain; they are shown as claimable and will revert if the connected wallet is not authorized.
+- CARLOS discovery relies on `carlos-locks.json`; re-run `local/refresh-carlos-locks.mjs` to pick up new locks.
+- CARLOS `sellPresale` is only possible when the owner still holds presale tokens in the wallet (it sells from the wallet); the locker balance is withdrawn separately.

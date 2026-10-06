@@ -48,6 +48,7 @@ const server = http.createServer(async (req, res) => {
     const data = await readFile(path.join(ROOT, safe));
     const type = safe.endsWith(".html") ? "text/html; charset=utf-8"
                : safe.endsWith(".js") ? "text/javascript; charset=utf-8"
+               : safe.endsWith(".json") ? "application/json; charset=utf-8"
                : "application/octet-stream";
     res.writeHead(200, { "content-type": type });
     res.end(data);

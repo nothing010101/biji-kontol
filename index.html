@@ -40,7 +40,7 @@
 <body>
 <div class="wrap">
   <h1>Base Fee Claimer</h1>
-  <p class="sub">Scan creator addresses → connect ANY wallet (bayar gas saja) → klaim fee <b>ApeStore</b> &amp; <b>Clanker</b> di <b>Base</b>. Fee selalu dikirim ke creator/owner, bukan ke pemanggil.</p>
+  <p class="sub">Scan creator addresses → connect ANY wallet (bayar gas saja) → klaim fee <b>ApeStore</b> &amp; <b>Clanker</b>, dan deteksi posisi terkunci di <b>CARLOS</b> (Base). Fee selalu dikirim ke creator/owner, bukan ke pemanggil.</p>
 
   <div class="card">
     <label>Wallet (pembayar gas)</label>
@@ -71,8 +71,8 @@
       <span id="sstat" class="mut"></span>
     </div>
     <p class="note" style="margin-bottom:0">
-      Sumber: <b>ApeStore</b> (V3 · V3.0 · V3.0.0 · V4 — V2 dilewati) &amp; <b>Clanker</b> (v0 · v1 · v2 · v3 · v3.1 · v4).
-      Base chain saja. ApeStore selalu diverifikasi on-chain sebelum ditandai bisa klaim.
+      Sumber: <b>ApeStore</b> (V3 · V3.0 · V3.0.0 · V4 — V2 dilewati), <b>Clanker</b> (v0 · v1 · v2 · v3 · v3.1 · v4), &amp; <b>CARLOS</b> (posisi terkunci di LOCKER).
+      Base chain saja. ApeStore &amp; CARLOS selalu diverifikasi on-chain sebelum ditandai bisa klaim.
     </p>
   </div>
 
@@ -126,6 +126,14 @@ const CLANKER_FACTORIES = {
 const CLANKER_LABEL = { proxy:"v0", clanker:"v1", clanker_v2:"v2", clanker_v3:"v3", clanker_v3_1:"v3.1", clanker_v4:"v4" };
 const CLANKER_LEGACY_TYPES = new Set(["proxy","clanker","clanker_v2","clanker_v3","clanker_v3_1"]);
 
+// CARLOS launchpad (Base). LAUNCHER membuat token + presale; LOCKER menyimpan lock token
+// milik creator/owner. `locks(token,owner)` → (amount, unlockTime). `withdraw(token)` hanya
+// bisa dipanggil oleh owner (penerima lock). Daftar kandidat token/owner di carlos-locks.json
+// (hasil event Locked() pada LOCKER — bukan enumerasi 4500 indeks).
+const CARLOS_LAUNCHER = "0x31C0282Fa6D0A82aD22ab63BbaCd87F62B2a9bfD";
+const CARLOS_LOCKER   = "0x72415Ec67374cc09bC5dE621b052300016cEcf60";
+const CARLOS_MAP_URL  = "/carlos-locks.json";
+
 /* ================= ifaces ================= */
 const $ = s=>document.querySelector(s);
 const el = (t,c,txt)=>{const e=document.createElement(t); if(c)e.className=c; if(txt!=null)e.textContent=txt; return e;};
@@ -139,11 +147,20 @@ const FEE_LOCKER_IFACE = new ethers.Interface([
   "function availableFees(address feeOwner,address token) view returns (uint256)",
   "function claim(address feeOwner,address token)"
 ]);
+const CARLOS_LOCKER_IFACE = new ethers.Interface([
+  "function locks(address token,address user) view returns (uint256 amount,uint256 unlockTime)",
+  "function withdraw(address token)"
+]);
+const CARLOS_LAUNCHER_IFACE = new ethers.Interface([
+  "function sellPresale(address token,uint256 amount,uint256 minOut)"
+]);
+const ERC20_BAL_IFACE = new ethers.Interface(["function balanceOf(address) view returns (uint256)"]);
 const NoAuthSel = new ethers.Interface(["error NotAuthorized()"]).getError("NotAuthorized").selector;
 const NoFeesSel = new ethers.Interface(["error NoFeesToCollect()"]).getError("NoFeesToCollect").selector;
 
 let TOKENS = [], ADDRESSES = [], SCANFAIL = [], FAILCLAIM = [];
 let PROVIDER = null, ACCOUNT = null;
+let CARLOS_MAP = null;   // {owners:{ "0xowner":[{t,a,u,b},…] }}
 
 /* ================= rpc (Base) ================= */
 const RPC_LS_KEY = "baseFeeClaimer.rpc";
@@ -254,6 +271,7 @@ $("#scan").onclick = async ()=>{
   $("#scan").disabled = true;
   $("#sstat").textContent = "memuat config ApeStore…";
   await loadApeConfig();
+  await loadCarlosMap();
   for(let i=0;i<list.length;i++){
     if(i>0) await sleep(SCAN_DELAY_MS);
     $("#sstat").textContent = `scanning ${i+1}/${list.length}…`;
@@ -266,6 +284,62 @@ $("#scan").onclick = async ()=>{
 async function scanOne(addr){
   await scanApeStore(addr);
   await scanClanker(addr);
+  await scanCarlos(addr);
+}
+
+/* ---- CARLOS ---- */
+async function loadCarlosMap(){
+  if(CARLOS_MAP) return;
+  try{
+    const r = await fetch(CARLOS_MAP_URL, {cache:"no-store"});
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    CARLOS_MAP = await r.json();
+    log(`  carlos map: ${CARLOS_MAP.ownerCount||Object.keys(CARLOS_MAP.owners||{}).length} owner, ${CARLOS_MAP.pairCount||"?"} posisi`);
+  }catch(e){
+    CARLOS_MAP = {owners:{}};
+    noteScanFail("carlos","CARLOS", "map", errMsg(e));
+  }
+}
+
+async function scanCarlos(addr){
+  await loadCarlosMap();
+  const cands = ((CARLOS_MAP && CARLOS_MAP.owners)||{})[addr.toLowerCase()];
+  if(!cands || !cands.length) return;
+  for(const c of cands){
+    const row = { source:"carlos", sourceLabel:"CARLOS", owner:addr, chain:BASE_CHAIN_ID,
+      token:c.t, symbol:"", target:CARLOS_LOCKER, kind:"carlos-withdraw", version:"locker",
+      perm:"creator", legacy:true, eventAmount:String(c.a), eventUnlock:Number(c.u) };
+    try{
+      const lr = await call(CARLOS_LOCKER, CARLOS_LOCKER_IFACE.encodeFunctionData("locks",[c.t, addr]));
+      let amount = 0n, unlockTime = 0n;
+      if(lr && lr!=="0x" && lr.length>=130){
+        const dec = CARLOS_LOCKER_IFACE.decodeFunctionResult("locks", lr);
+        amount = dec[0]; unlockTime = dec[1];
+      }
+      const lb = await call(c.t, ERC20_BAL_IFACE.encodeFunctionData("balanceOf",[CARLOS_LOCKER]));
+      const wb = await call(c.t, ERC20_BAL_IFACE.encodeFunctionData("balanceOf",[addr]));
+      row.lockAmount = amount.toString();
+      row.unlockTime = Number(unlockTime);
+      row.balLocker  = lb && lb!=="0x" ? BigInt(lb).toString() : "0";
+      row.balWallet  = wb && wb!=="0x" ? BigInt(wb).toString() : "0";
+      row.unlocked   = row.unlockTime>0 && (Date.now()/1000 >= row.unlockTime);
+      try{ await call(CARLOS_LOCKER, CARLOS_LOCKER_IFACE.encodeFunctionData("withdraw",[c.t]), addr); row.canWithdraw=true; }
+      catch(e){ row.canWithdraw=false; row.withdrawErr=errMsg(e); }
+      try{
+        const amtForSale = BigInt(row.balWallet)>0n ? row.balWallet : row.lockAmount;
+        if(BigInt(amtForSale)>0n){
+          await call(CARLOS_LAUNCHER, CARLOS_LAUNCHER_IFACE.encodeFunctionData("sellPresale",[c.t, amtForSale, 0]), addr);
+          row.canSell = true;
+        } else row.canSell = false;
+      }catch(e){ row.canSell=false; row.sellErr=errMsg(e); }
+
+      if(amount>0n && row.unlocked && BigInt(row.balLocker)>=amount) row.state="claimable";
+      else if(amount>0n) row.state="locked";
+      else if(BigInt(row.balLocker)>0n) row.state="stuck";
+      else row.state="clean";
+    }catch(e){ row.state="failed"; row.detail=errMsg(e); }
+    if(row.state!=="clean") TOKENS.push(row);   // "clean" = lock sudah ditarik, tidak ada sisa
+  }
 }
 
 /* ---- ApeStore ---- */
@@ -363,6 +437,66 @@ function noteScanFail(source, label, addr, err){
 }
 
 /* ================= render ================= */
+function fmt18(x){
+  try{
+    const n = BigInt(x); const w = n/10n**18n;
+    const f = (n%10n**18n).toString().padStart(18,"0").slice(0,6).replace(/0+$/,"");
+    return w.toString()+(f? "."+f : "");
+  }catch(e){ return String(x); }
+}
+function carlosReport(rows){
+  const L=[];
+  for(const t of rows){
+    L.push("=== "+t.owner+" ===");
+    L.push("token    : "+t.token);
+    L.push("locker   : "+CARLOS_LOCKER);
+    L.push("launcher : "+CARLOS_LAUNCHER);
+    L.push("locks()  : amount="+t.lockAmount+"  rawUnlockTime="+t.unlockTime);
+    L.push("unlock   : "+(t.unlockTime? new Date(t.unlockTime*1000).toISOString() : "-"));
+    L.push("locker bal: "+t.balLocker+"  ("+fmt18(t.balLocker)+")");
+    L.push("wallet bal: "+t.balWallet+"  ("+fmt18(t.balWallet)+")");
+    L.push("withdraw  : "+(t.canWithdraw?"YA":"TIDAK"));
+    L.push("sellPresale: "+(t.canSell?"YA":"TIDAK"));
+    L.push("");
+  }
+  const nAddr = new Set(rows.filter(t=>t.state!=="clean").map(t=>t.owner.toLowerCase())).size;
+  L.push("total alamat dengan posisi terkunci = "+nAddr);
+  return L.join("\n");
+}
+function carlosSection(rows){
+  const box = el("div","sect");
+  const head = el("div","row");
+  head.appendChild(el("h2",null,`CARLOS — posisi di LOCKER — ${rows.length}`));
+  const badge = el("span"); badge.innerHTML = PERM_BADGE.creator; head.appendChild(badge);
+  const rep = el("button","sec tiny","Copy laporan");
+  rep.onclick = ()=>doCopy(carlosReport(rows), rep);
+  head.appendChild(rep);
+  box.appendChild(head);
+  box.appendChild(el("p","note","Kandidat dari event Locked() pada LOCKER (0x7241…cf60), diverifikasi on-chain: locks(token,owner) + balanceOf. withdraw() hanya berhasil oleh wallet owner."));
+  const tb = el("table");
+  const trh = el("tr");
+  ["","Alamat","Token","Amount locked","Unlock","Saldo locker","Saldo wallet","Withdraw","sellPresale"].forEach(h=>trh.appendChild(el("th",null,h)));
+  const thead = el("thead"); thead.appendChild(trh); tb.appendChild(thead);
+  const tb2 = el("tbody");
+  rows.forEach(t=>{
+    const tr = el("tr");
+    const td = el("td"); const cb = el("input"); cb.type="checkbox"; cb.checked = (t.state==="claimable"); cb.disabled = (t.state!=="claimable");
+    cb.dataset.row = TOKENS.indexOf(t); cb.onchange = refreshButtons; td.appendChild(cb); tr.appendChild(td);
+    tr.appendChild(el("td","mono",t.owner));
+    const tok = el("td","mono",t.token.slice(0,10)+"…");
+    const a = el("a",null,"↗"); a.href = CHAIN.ScannerUrl+"/token/"+t.token; a.target="_blank"; a.rel="noopener"; tok.append(document.createTextNode(" "),a);
+    tr.appendChild(tok);
+    tr.appendChild(el("td","mono",fmt18(t.lockAmount)));
+    tr.appendChild(el("td","mono",t.unlockTime? new Date(t.unlockTime*1000).toISOString().slice(0,10) : "—"));
+    tr.appendChild(el("td","mono",fmt18(t.balLocker)));
+    tr.appendChild(el("td","mono",fmt18(t.balWallet)));
+    const w = el("td"); w.appendChild(el("span","tag "+(t.canWithdraw?"pill-ok":"pill-err"), t.canWithdraw?"YA":"TIDAK")); tr.appendChild(w);
+    const s = el("td"); s.appendChild(el("span","tag "+(t.canSell?"pill-ok":"pill-err"), t.canSell?"YA":"TIDAK")); tr.appendChild(s);
+    tb2.appendChild(tr);
+  });
+  tb.appendChild(tb2); box.appendChild(tb);
+  return box;
+}
 const PERM_BADGE = {
   free:'<span class="tag pill-free">wallet bebas</span>',
   creator:'<span class="tag pill-warn">butuh wallet deployer/creator</span>'
@@ -370,7 +504,7 @@ const PERM_BADGE = {
 
 function render(){
   const claimable = TOKENS.filter(t=>t.state==="claimable" && !t.legacy);
-  const legacy    = TOKENS.filter(t=>t.state==="claimable" && t.legacy);
+  const legacy    = TOKENS.filter(t=>t.state==="claimable" && t.legacy && t.source==="clanker");
   const nofee     = TOKENS.filter(t=>t.state==="nofee");
   const failed    = TOKENS.filter(t=>t.state==="failed");
   const launched  = new Set([...claimable,...legacy,...nofee,...failed].map(t=>t.owner.toLowerCase()));
@@ -388,6 +522,9 @@ function render(){
 
   const clankerV4 = claimable.filter(t=>t.source==="clanker");
   if(clankerV4.length) root.appendChild(section("Bisa klaim — Clanker v4", clankerV4, true, "pill-ok", PERM_BADGE.free));
+
+  const carlosRows = TOKENS.filter(t=>t.source==="carlos");
+  if(carlosRows.length) root.appendChild(carlosSection(carlosRows));
 
   if(legacy.length){
     const box = section("Clanker legacy (v0–v3.1) — butuh wallet deployer/creator", legacy, true, "pill-warn", PERM_BADGE.creator);
@@ -538,6 +675,10 @@ async function runClaim(rows){
         const ctr = new ethers.Contract(t.target, FEE_LOCKER_IFACE, signer);
         log(`  Clanker v4 ${t.symbol||""} ${t.token}`);
         tx = await ctr.claim(t.feeOwner, t.token);
+      } else if(t.kind==="carlos-withdraw"){
+        const ctr = new ethers.Contract(CARLOS_LOCKER, CARLOS_LOCKER_IFACE, signer);
+        log(`  CARLOS withdraw ${t.symbol||""} ${t.token}`);
+        tx = await ctr.withdraw(t.token);
       } else if(t.kind==="factory"){
         const ctr = new ethers.Contract(t.target, FACTORY_IFACE, signer);
         log(`  Clanker ${t.version} (legacy) ${t.symbol||""} ${t.token}`);
