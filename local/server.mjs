@@ -1,5 +1,5 @@
 // Local dev server (NOT used by Vercel).
-// Serves ../index.html and proxies /api/* -> https://ape.store/api/*
+// Serves ../index.html and proxies the ApeStore / Clanker APIs (no CORS upstream).
 // Vercel uses the functions in /api instead.
 //
 //   node local/server.mjs            # http://localhost:8787
@@ -19,20 +19,7 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
 
-    // ---- RPC proxy (mirrors api/rpc.js) ----
-    if (url.pathname === "/api/rpc") {
-      const RPCS = { robinhood: "https://rpc.mainnet.chain.robinhood.com", base: "https://mainnet.base.org", eth: "https://cloudflare-eth.com", bsc: "https://bsc-dataseed.bnbchain.org", arbitrum: "https://arb1.arbitrum.io/rpc", unichain: "https://mainnet.unichain.org", monad: "https://nodes.sequence.app/monad" };
-      const target = RPCS[url.searchParams.get("chain")];
-      if (!target) { res.writeHead(400, { "content-type": "application/json" }); return res.end(JSON.stringify({ error: "unknown chain" })); }
-      const chunks = [];
-      for await (const ch of req) chunks.push(ch);
-      const upstream = await fetch(target, { method: "POST", headers: { "content-type": "application/json" }, body: Buffer.concat(chunks) });
-      const body = await upstream.text();
-      res.writeHead(upstream.status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "access-control-allow-origin": "*" });
-      return res.end(body);
-    }
-
-    // ---- API proxy (same allowlist as the Vercel functions) ----
+    // ---- Clanker API proxy (mirrors api/clanker.js) ----
     if (url.pathname === "/api/clanker") {
       const target = `${UPSTREAM_CLANKER}/api/tokens/fetch-deployed-by-address?address=${url.searchParams.get("address")}`;
       const upstream = await fetch(target, { headers: { "user-agent": "Mozilla/5.0", accept: "application/json" } });
@@ -41,6 +28,7 @@ const server = http.createServer(async (req, res) => {
       return res.end(body);
     }
 
+    // ---- ApeStore API proxy (same allowlist as the Vercel functions) ----
     if (url.pathname === "/api/config" || url.pathname.startsWith("/api/user/")) {
       const upstream = await fetch(UPSTREAM + url.pathname, {
         headers: { "user-agent": "Mozilla/5.0", accept: "application/json" },
@@ -70,6 +58,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`ApeStore Fee Claimer (local):  http://localhost:${PORT}`);
-  console.log(`API proxied to ${UPSTREAM}/api/*`);
+  console.log(`Base Fee Claimer (local):  http://localhost:${PORT}`);
+  console.log(`API proxied to ${UPSTREAM}/api/* and ${UPSTREAM_CLANKER}/api/*`);
+  console.log(`On-chain reads use the RPC entered in the page (Alchemy key or public Base RPC).`);
 });

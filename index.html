@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="id">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Launchpad Fee Claimer</title>
+<title>Base Fee Claimer — ApeStore &amp; Clanker</title>
 <style>
   :root{--bg:#0a0d12;--card:#12161d;--line:#232a35;--txt:#e7ecf3;--mut:#8b96a5;--acc:#2dd4bf;--warn:#fbbf24;--err:#f87171;--ok:#34d399}
   *{box-sizing:border-box}
@@ -15,6 +15,7 @@
   .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
   label{display:block;font-weight:600;margin-bottom:6px}
   textarea{width:100%;min-height:120px;background:#0d1117;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:10px;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;resize:vertical}
+  input.inp{flex:1;min-width:260px;background:#0d1117;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:9px 10px;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace}
   button{background:var(--acc);color:#04231f;border:0;border-radius:8px;padding:9px 14px;font-weight:700;cursor:pointer}
   button.sec{background:#1c232e;color:var(--txt);border:1px solid var(--line)}
   button.tiny{padding:3px 8px;font-size:11px;border-radius:6px}
@@ -38,15 +39,27 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>Launchpad Fee Claimer</h1>
-  <p class="sub">Scan creator addresses → connect ANY wallet (pays gas only) → collect fees. Fees always go to the claimable address, never to the caller.</p>
+  <h1>Base Fee Claimer</h1>
+  <p class="sub">Scan creator addresses → connect ANY wallet (bayar gas saja) → klaim fee <b>ApeStore</b> &amp; <b>Clanker</b> di <b>Base</b>. Fee selalu dikirim ke creator/owner, bukan ke pemanggil.</p>
 
   <div class="card">
-    <label>Wallet (pays gas)</label>
+    <label>Wallet (pembayar gas)</label>
     <div class="row">
       <button id="connect">Connect wallet</button>
       <span id="wstat" class="mut">not connected</span>
     </div>
+  </div>
+
+  <div class="card">
+    <label>RPC Base — Alchemy key atau URL</label>
+    <div class="row">
+      <input id="rpc" class="inp" spellcheck="false" autocomplete="off"
+             placeholder="alchemy key (contoh: abc123…)  atau  https://base-mainnet.g.alchemy.com/v2/abc123"/>
+      <button id="rpcsave" class="sec">Simpan</button>
+      <button id="rpcclear" class="sec">Hapus</button>
+      <span id="rpcstat" class="mut"></span>
+    </div>
+    <p class="note" style="margin:8px 0 0">Disimpan di browser (localStorage). Kalau kosong → RPC publik Base.</p>
   </div>
 
   <div class="card">
@@ -58,8 +71,8 @@
       <span id="sstat" class="mut"></span>
     </div>
     <p class="note" style="margin-bottom:0">
-      Sumber: <b>ApeStore</b> · <b>Noxa</b> · <b>Pons v1/v1.5</b> · <b>Clanker (semua versi)</b>.
-      ApeStore v2 & token tak bisa diklaim tidak ditampilkan.
+      Sumber: <b>ApeStore</b> (V3 · V3.0 · V3.0.0 · V4 — V2 dilewati) &amp; <b>Clanker</b> (v0 · v1 · v2 · v3 · v3.1 · v4).
+      Base chain saja. ApeStore selalu diverifikasi on-chain sebelum ditandai bisa klaim.
     </p>
   </div>
 
@@ -84,46 +97,47 @@
 <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
 <script>
 /* ================= config ================= */
-const RAW = [
- {"ID":8453,"Short":"base","Name":"Base","NativeToken":"ETH","PublicRpc":"https://mainnet.base.org","ScannerUrl":"https://basescan.org",
-  "ApeV30Routers":["0xb3bEa12AFC263318C16DC16DbFD5AB3A0261DABf","0xB1900F41d78D330A2a35C6771b3A6088a1b51309"],
-  "ApeV3Routers":["0x2D0d55E8d4418ce6157Cf31d9ffafB88117C0040"],"ApeV4Routers":["0xd299cbec046bb4a419db3b98e1d134f271108040"],
-  "FeeLocker":"0xF3622742b1E446D92e45E22923Ef11C2fcD55D68"},
- {"ID":1,"Short":"eth","Name":"Ethereum","NativeToken":"ETH","PublicRpc":"https://cloudflare-eth.com","ScannerUrl":"https://etherscan.io",
-  "ApeV30Routers":[],"ApeV3Routers":[],"ApeV4Routers":[],"FeeLocker":"0xA9C0a423f0092176fC48d7B50a1fCae8cf5BB441"},
- {"ID":56,"Short":"bsc","Name":"BNB","NativeToken":"BNB","PublicRpc":"https://bsc-dataseed.bnbchain.org","ScannerUrl":"https://bscscan.com",
-  "ApeV30Routers":["0xE2C1d43E94c4f64AAd4a4DBcb9f8f7405D78c1eB"],"ApeV3Routers":[],"ApeV4Routers":[]},
- {"ID":4663,"Short":"robinhood","Name":"RobinHood","NativeToken":"ETH","PublicRpc":"https://rpc.mainnet.chain.robinhood.com","ScannerUrl":"https://robinhoodchain.blockscout.com",
-  "ApeV30Routers":["0x6e4910ea5A04376032F6564da9a9E4E88B7a87C1"],"ApeV3Routers":[],"ApeV4Routers":[]},
- {"ID":42161,"Short":"arbitrum","Name":"Arbitrum","NativeToken":"ETH","PublicRpc":"https://arb1.arbitrum.io/rpc","ScannerUrl":"https://arbiscan.io",
-  "ApeV30Routers":[],"ApeV3Routers":[],"ApeV4Routers":[],"FeeLocker":"0x92C0DCbAba17b0F5f3a7537dA82c0F80520e4dF6"},
- {"ID":130,"Short":"unichain","Name":"Unichain","NativeToken":"ETH","PublicRpc":"https://mainnet.unichain.org","ScannerUrl":"https://uniscan.xyz",
-  "ApeV30Routers":[],"ApeV3Routers":[],"ApeV4Routers":[],"FeeLocker":"0x1d5A0F0BD3eA07F78FC14577f053de7A3FEc35B2"},
- {"ID":143,"Short":"monad","Name":"Monad","NativeToken":"MON","PublicRpc":"https://nodes.sequence.app/monad","ScannerUrl":"https://explorer.monad.xyz",
-  "ApeV30Routers":[],"ApeV3Routers":[],"ApeV4Routers":[],"FeeLocker":"0xDe51a86D3b6EC9ac4756115D3744335Aa2c30144"},
-];
-const CHAINS = Object.fromEntries(RAW.map(c=>[c.ID,c]));
-const API = "/api";
+const BASE_CHAIN_ID = 8453;
 
-const LAUNCHPADS = [
-  { key:"pons",  label:"Pons v1",   chain:4663, locker:"0x736D76699C26D0d966744cAe304C000d471f7F35", hasCount:true,  perm:"creator" },
-  { key:"pons",  label:"Pons v1.5", chain:4663, locker:"0x10F2756e373bAb14999fdC9177587D51D30a1Cf5", hasCount:true,  perm:"creator" },
-  { key:"noxa",  label:"Noxa",      chain:4663, locker:"0x7F03effbd7ceB22A3f80Dd468f67eF27826acD85", hasCount:false, perm:"creator" },
-];
+// Snapshot fallback. Nilai live diambil dari /api/config saat load.
+const BASE_FALLBACK = {
+  ID: 8453, Short:"base", Name:"Base", NativeToken:"ETH",
+  PublicRpc:"https://mainnet.base.org", ScannerUrl:"https://basescan.org",
+  ApeV3Routers:["0x2D0d55E8d4418ce6157Cf31d9ffafB88117C0040"],
+  ApeV30Routers:["0xb3bEa12AFC263318C16DC16DbFD5AB3A0261DABf","0xB1900F41d78D330A2a35C6771b3A6088a1b51309","0x1Fc310f1ca381D42A5D23d93394BE9aA6C3675dB"],
+  ApeV300Routers:["0x402A795Fc6ab0063726709500B4597e0873736C8"],
+  ApeV4Routers:["0xd299cbec046bb4a419db3b98e1d134f271108040"]
+};
+const CHAIN = Object.assign({}, BASE_FALLBACK);
+
+// ApeStore: collectFees(address) dipanggil di router. Protocol 3 & 4 → ApeV3Routers,
+// 300 → ApeV300Routers, 30 → ApeV30Routers. Protocol 2 (V2) tidak bisa diklaim.
+const APE_VERSION = { 3:"V3", 4:"V4", 30:"V3.0", 300:"V3.0.0" };
+const APE_BATCH_HELPER = "0x533c68360bE3e0caC63d70ccd5768AcCe2495818"; // collectFees(router, address[]) — V3.0 & V3.0.0
+
+// Clanker: v4 pakai FeeLocker (bebas wallet). v0–v3.1 = legacy (butuh wallet deployer/creator).
+const CLANKER_FEE_LOCKER = "0xF3622742b1E446D92e45E22923Ef11C2fcD55D68";
+const CLANKER_LEGACY_SPENDER = "0x10F4485d6f90239B72c6A5eaD2F2320993D285E4";
+const CLANKER_FACTORIES = {
+  clanker_v2:   "0x732560fa1d1A76350b1A500155BA978031B53833",
+  clanker_v3:   "0x375C15db32D28cEcdcAB5C03Ab889bf15cbD2c5E",
+  clanker_v3_1: "0x2A787b2362021cC3eEa3C24C4748a6cD5B687382"
+};
+const CLANKER_LABEL = { proxy:"v0", clanker:"v1", clanker_v2:"v2", clanker_v3:"v3", clanker_v3_1:"v3.1", clanker_v4:"v4" };
+const CLANKER_LEGACY_TYPES = new Set(["proxy","clanker","clanker_v2","clanker_v3","clanker_v3_1"]);
 
 /* ================= ifaces ================= */
 const $ = s=>document.querySelector(s);
 const el = (t,c,txt)=>{const e=document.createElement(t); if(c)e.className=c; if(txt!=null)e.textContent=txt; return e;};
 const ZERO = "0x0000000000000000000000000000000000000000";
 const ROUTER_IFACE = new ethers.Interface(["function collectFees(address token)"]);
-const LOCKER_IFACE = new ethers.Interface([
-  "function collectFees(address token)",
-  "function deployerTokenCount(address) view returns (uint256)",
-  "function deployerTokens(address,uint256) view returns (address)",
-]);
+const BATCH_IFACE = new ethers.Interface(["function collectFees(address routerAddress, address[] tokenaddresses)"]);
+const LOCKER_IFACE = new ethers.Interface(["function collectFees(address _recipient, uint256 _tokenId)"]);
+const META_LOCKER_IFACE = new ethers.Interface(["function collectFees(uint256 _tokenId)"]);
+const FACTORY_IFACE = new ethers.Interface(["function claimRewards(address token)"]);
 const FEE_LOCKER_IFACE = new ethers.Interface([
   "function availableFees(address feeOwner,address token) view returns (uint256)",
-  "function claim(address feeOwner,address token)",
+  "function claim(address feeOwner,address token)"
 ]);
 const NoAuthSel = new ethers.Interface(["error NotAuthorized()"]).getError("NotAuthorized").selector;
 const NoFeesSel = new ethers.Interface(["error NoFeesToCollect()"]).getError("NoFeesToCollect").selector;
@@ -131,17 +145,38 @@ const NoFeesSel = new ethers.Interface(["error NoFeesToCollect()"]).getError("No
 let TOKENS = [], ADDRESSES = [], SCANFAIL = [], FAILCLAIM = [];
 let PROVIDER = null, ACCOUNT = null;
 
-/* ================= rpc proxy ================= */
+/* ================= rpc (Base) ================= */
+const RPC_LS_KEY = "baseFeeClaimer.rpc";
+function savedRpc(){ return (localStorage.getItem(RPC_LS_KEY)||"").trim(); }
+function rpcUrl(){
+  const v = savedRpc();
+  if(!v) return CHAIN.PublicRpc || "https://mainnet.base.org";
+  return /^https?:\/\//i.test(v) ? v : `https://base-mainnet.g.alchemy.com/v2/${v}`;
+}
+function updateRpcStat(){
+  const v = savedRpc();
+  if(!v){ $("#rpcstat").textContent = "pakai RPC publik Base"; return; }
+  const u = rpcUrl();
+  $("#rpcstat").textContent = "RPC: " + (u.length>46 ? u.slice(0,44)+"…" : u);
+}
+$("#rpcsave").onclick = ()=>{
+  const v = $("#rpc").value.trim();
+  if(v) localStorage.setItem(RPC_LS_KEY, v); else localStorage.removeItem(RPC_LS_KEY);
+  updateRpcStat();
+};
+$("#rpcclear").onclick = ()=>{ $("#rpc").value=""; localStorage.removeItem(RPC_LS_KEY); updateRpcStat(); };
+$("#rpc").addEventListener("change", ()=>{ const v=$("#rpc").value.trim(); if(v) localStorage.setItem(RPC_LS_KEY,v); updateRpcStat(); });
+
 let rpcId = 1;
-async function rpc(chainKey, method, params){
-  const r = await fetch(`${API}/rpc?chain=${chainKey}`, { method:"POST", headers:{"content-type":"application/json"},
+async function rpc(method, params){
+  const r = await fetch(rpcUrl(), { method:"POST", headers:{"content-type":"application/json"},
     body: JSON.stringify({jsonrpc:"2.0", id: rpcId++, method, params}) });
+  if(!r.ok) throw new Error(`RPC HTTP ${r.status}`);
   const j = await r.json();
-  if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+  if(j.error) throw new Error(j.error.message || JSON.stringify(j.error));
   return j.result;
 }
-const chainKey = id => (CHAINS[id] && CHAINS[id].Short) || String(id);
-const call = (chainId, to, data) => rpc(chainKey(chainId), "eth_call", [{to, data}, "latest"]);
+const call = (to, data, from) => rpc("eth_call", [ from ? {to, data, from} : {to, data}, "latest"]);
 
 function errMsg(e){
   const info = e && e.info && e.info.error;
@@ -149,6 +184,29 @@ function errMsg(e){
 }
 const LOGLINES = [];
 function log(s){ LOGLINES.push(s); const p=$("#log"); p.classList.remove("hide"); p.textContent = LOGLINES.join("\n"); p.scrollTop = p.scrollHeight; }
+
+/* ================= live ApeStore config ================= */
+async function loadApeConfig(){
+  try{
+    const r = await fetch("/api/config");
+    if(!r.ok) return;
+    const txt = await r.text();
+    const i = txt.indexOf("ApeConfig");
+    if(i<0) return;
+    const start = txt.indexOf("[", i);
+    if(start<0) return;
+    let depth=0, end=-1;
+    for(let k=start;k<txt.length;k++){
+      const c=txt[k];
+      if(c==="[") depth++;
+      else if(c==="]"){ depth--; if(depth===0){ end=k+1; break; } }
+    }
+    if(end<0) return;
+    const arr = JSON.parse(txt.slice(start,end));
+    const b = arr.find(c=>Number(c.ID)===BASE_CHAIN_ID);
+    if(b) Object.assign(CHAIN, b);
+  }catch(e){ /* pakai snapshot */ }
+}
 
 /* ================= wallet ================= */
 $("#connect").onclick = async ()=>{
@@ -163,7 +221,11 @@ $("#connect").onclick = async ()=>{
   }catch(e){ alert("Connect failed: "+(e.shortMessage||e.message)); }
 };
 if(window.ethereum){
-  window.ethereum.on && window.ethereum.on("accountsChanged", a=>{ ACCOUNT=a&&a[0]; $("#wstat").textContent = ACCOUNT?(ACCOUNT.slice(0,6)+"…"+ACCOUNT.slice(-4)):"not connected"; refreshButtons(); });
+  window.ethereum.on && window.ethereum.on("accountsChanged", a=>{
+    ACCOUNT = a && a[0];
+    $("#wstat").textContent = ACCOUNT ? (ACCOUNT.slice(0,6)+"…"+ACCOUNT.slice(-4)) : "not connected";
+    refreshButtons();
+  });
 }
 
 /* ================= scan ================= */
@@ -174,6 +236,8 @@ $("#scan").onclick = async ()=>{
   if(!list.length){ alert("Masukkan minimal satu alamat 0x…"); return; }
   ADDRESSES = list; TOKENS=[]; SCANFAIL=[]; FAILCLAIM=[]; LOGLINES.length=0;
   $("#scan").disabled = true;
+  $("#sstat").textContent = "memuat config ApeStore…";
+  await loadApeConfig();
   for(let i=0;i<list.length;i++){
     $("#sstat").textContent = `scanning ${i+1}/${list.length}…`;
     await scanOne(list[i]);
@@ -184,101 +248,95 @@ $("#scan").onclick = async ()=>{
 
 async function scanOne(addr){
   await scanApeStore(addr);
-  for(const lp of LAUNCHPADS) await scanLocker(lp, addr);
   await scanClanker(addr);
 }
 
 /* ---- ApeStore ---- */
 function apeRouterFor(t){
-  const c = CHAINS[t.chain]; if(!c) return null;
   const p = Number(t.protocol);
-  if(p===2) return null;                                  // ApeStore v2 → skip, tidak ditampilkan
-  const arr = p===3 ? c.ApeV3Routers : p===4 ? (c.ApeV4Routers&&c.ApeV4Routers.length?c.ApeV4Routers:c.ApeV3Routers) : c.ApeV30Routers;
-  if(!arr || !arr.length) return null;
+  if(p===2) return null;                                   // V2 tidak bisa diklaim
   const idx = Number(t.router||0);
+  let arr;
+  if(p===3 || p===4) arr = CHAIN.ApeV3Routers;             // V4 diklaim lewat router V3 (sesuai frontend ape.store)
+  else if(p===300)   arr = CHAIN.ApeV300Routers;
+  else               arr = CHAIN.ApeV30Routers;
+  if(!arr || !arr.length) return null;
   return arr[idx] ?? arr[arr.length-1] ?? null;
 }
 async function scanApeStore(addr){
+  let tokens;
   try{
-    const r = await fetch(`${API}/user/${addr}`);
+    const r = await fetch(`/api/user/${addr}`);
     const j = await r.json();
-    for(const t of (j.tokens||[])){
-      const router = apeRouterFor(t);
-      if(!router || Number(t.protocol)===2) continue;
-      TOKENS.push({ source:"apestore", sourceLabel:"ApeStore", perm:"free", state:"claimable", owner:addr,
-        chain:t.chain, token:t.address, symbol:t.symbol||"", target:router, kind:"router",
-        version: t.protocol===30?"V3.0":t.protocol===3?"V3":t.protocol===4?"V4":("V"+t.protocol), fee:"?" });
-    }
-  }catch(e){ noteScanFail("apestore","ApeStore", addr, errMsg(e)); }
-}
+    tokens = j.tokens || [];
+  }catch(e){ noteScanFail("apestore","ApeStore", addr, errMsg(e)); return; }
 
-/* ---- Pons / Noxa (on-chain, creator-only) ---- */
-async function scanLocker(lp, owner){
-  let toks=[];
-  try{ toks = await lockerTokens(lp, owner); }
-  catch(e){ noteScanFail(lp.key, lp.label, owner, errMsg(e)); return; }
-  for(const token of toks){
-    const chk = await simLockerClaim(lp, token, owner);
-    if(chk.reason === "NotAuthorized") continue;         // bukan alamat yang berhak → tidak ditampilkan
-    if(chk.ok) TOKENS.push({ source:lp.key, sourceLabel:lp.label, perm:"creator", state:"claimable", owner,
-        chain:lp.chain, token, symbol:"", target:lp.locker, kind:"locker", version:"", fee:"yes" });
-    else TOKENS.push({ source:lp.key, sourceLabel:lp.label, perm:"creator", state:"nofee", owner,
-        chain:lp.chain, token, symbol:"", target:lp.locker, kind:"locker", version:"", fee:"no", detail:chk.detail });
+  for(const t of tokens){
+    if(Number(t.chain)!==BASE_CHAIN_ID) continue;
+    const p = Number(t.protocol);
+    if(p===2) continue;                                    // V2 dilewati
+    const router = apeRouterFor(t);
+    if(!router) continue;
+    const row = { source:"apestore", sourceLabel:"ApeStore", perm:"free", state:"pending",
+      owner:addr, chain:BASE_CHAIN_ID, token:t.address, symbol:t.symbol||"", target:router,
+      kind:"router", version: APE_VERSION[p] || ("V"+p) };
+    const v = await verifyApe(row);
+    row.verified = v.ok;
+    if(v.ok){ row.state="claimable"; }
+    else { row.state="failed"; row.detail=v.err; }
+    TOKENS.push(row);
   }
 }
-async function lockerTokens(lp, deployer){
-  const out=[]; let n=null;
-  if(lp.hasCount){
-    try{ const raw=await call(lp.chain, lp.locker, LOCKER_IFACE.encodeFunctionData("deployerTokenCount",[deployer])); if(raw&&raw.length>=66) n=Number(BigInt(raw)); }catch(e){ n=null; }
-  }
-  const cap = n==null ? 500 : Math.min(n,1000);
-  for(let i=0;i<cap;i++){
-    let t;
-    try{ const raw=await call(lp.chain, lp.locker, LOCKER_IFACE.encodeFunctionData("deployerTokens",[deployer,i])); t="0x"+raw.slice(26).toLowerCase(); }
-    catch(e){ break; }
-    if(t===ZERO) break;
-    out.push(t);
-  }
-  return out;
-}
-async function simLockerClaim(lp, token, from){
-  const data = LOCKER_IFACE.encodeFunctionData("collectFees",[token]);
-  try{ await rpc(chainKey(lp.chain), "eth_call", [{to:lp.locker, data, from}, "latest"]); return {ok:true}; }
-  catch(e){
-    const sel=(String(e.message||"").match(/0x[0-9a-fA-F]{8}/)||[])[0];
-    if(sel===NoAuthSel) return {ok:false, reason:"NotAuthorized"};
-    if(sel===NoFeesSel) return {ok:false, reason:"NoFeesToCollect"};
-    return {ok:false, reason:"other", detail:String(e.message||"").slice(0,120)};
-  }
-}
-
-/* ---- Clanker (off-chain API + on-chain FeeLocker) ---- */
-async function scanClanker(addr){
-  let tokens=[];
+async function verifyApe(row){
   try{
-    const r = await fetch(`${API}/clanker?address=${addr}`);
+    await call(row.target, ROUTER_IFACE.encodeFunctionData("collectFees",[row.token]), row.owner);
+    return { ok:true };
+  }catch(e){ return { ok:false, err: errMsg(e) }; }
+}
+
+/* ---- Clanker ---- */
+async function scanClanker(addr){
+  let tokens;
+  try{
+    const r = await fetch(`/api/clanker?address=${addr}`);
     const j = await r.json();
     tokens = j.data || [];
   }catch(e){ noteScanFail("clanker","Clanker", addr, errMsg(e)); return; }
 
   for(const t of tokens){
-    const chainId = Number(t.chain_id);
-    const owner = t.admin;
-    const c = CHAINS[chainId];
-    const isV4 = String(t.type||"").startsWith("clanker_v4");
-    const row = { source:"clanker", sourceLabel:"Clanker", perm: isV4 ? "free":"legacy", owner: addr,
-      chain: chainId, token: t.contract_address, symbol: t.symbol||"", version: String(t.type||"").replace("clanker_",""),
-      feeOwner: owner, target: c && c.FeeLocker, kind:"feelocker",
-      state: isV4 ? "pending" : "legacy", fee:"?" };
-    if(!isV4 || !c || !c.FeeLocker){ TOKENS.push(row); continue; }   // legacy → section sendiri, tidak bisa via jalur ini
-    try{
-      const raw = await call(chainId, c.FeeLocker, FEE_LOCKER_IFACE.encodeFunctionData("availableFees",[owner, t.contract_address]));
-      const amt = raw && raw !== "0x" ? BigInt(raw) : 0n;
-      row.state = amt > 0n ? "claimable" : "nofee";
-      row.fee = amt > 0n ? "yes":"no";
-      row.amount = amt.toString();
-      TOKENS.push(row);
-    }catch(e){ noteScanFail("clanker","Clanker "+t.symbol, addr+"/"+t.contract_address, errMsg(e)); }
+    if(Number(t.chain_id)!==BASE_CHAIN_ID) continue;
+    const type = String(t.type||"");
+    const token = t.contract_address;
+    const admin = (t.admin && t.admin!==ZERO) ? t.admin : addr;
+    const row = { source:"clanker", sourceLabel:"Clanker", owner:addr, chain:BASE_CHAIN_ID,
+      token, symbol:t.symbol||"", feeOwner:admin, factory:t.factory_address, locker:t.locker_address,
+      positionId:t.position_id, version: CLANKER_LABEL[type] || type || "legacy" };
+
+    if(type==="clanker_v4"){
+      // v4 — FeeLocker, permissionless (wallet apa saja bisa bayar gas)
+      row.perm="free"; row.kind="feelocker"; row.target=CLANKER_FEE_LOCKER;
+      try{
+        const raw = await call(CLANKER_FEE_LOCKER, FEE_LOCKER_IFACE.encodeFunctionData("availableFees",[admin, token]));
+        const amt = raw && raw!=="0x" ? BigInt(raw) : 0n;
+        row.amount = amt.toString();
+        row.state = amt>0n ? "claimable" : "nofee";
+        row.fee = amt>0n ? "yes" : "no";
+      }catch(e){ row.state="failed"; row.detail=errMsg(e); noteScanFail("clanker","Clanker "+row.symbol, addr+"/"+token, errMsg(e)); }
+    } else {
+      // legacy v0–v3.1 — butuh wallet deployer/creator
+      row.perm="creator"; row.legacy=true; row.state="claimable";
+      if(type==="clanker_v2" || type==="clanker_v3" || type==="clanker_v3_1"){
+        row.kind="factory";
+        row.target = t.factory_address || CLANKER_FACTORIES[type];
+      } else {
+        // v0/v1: locker per token
+        row.kind="locker";
+        row.target = t.locker_address;
+        row.positionId = t.position_id;
+        row.feeOwner = admin;
+      }
+    }
+    TOKENS.push(row);
   }
 }
 
@@ -288,38 +346,44 @@ function noteScanFail(source, label, addr, err){
 }
 
 /* ================= render ================= */
-const SRC_LABEL = { apestore:"ApeStore", noxa:"Noxa", pons:"Pons", clanker:"Clanker" };
-const PERM_BADGE = { free:'<span class="tag pill-free">wallet bebas</span>', creator:'<span class="tag pill-warn">harus wallet creator</span>', legacy:'<span class="tag pill-warn">legacy</span>' };
+const PERM_BADGE = {
+  free:'<span class="tag pill-free">wallet bebas</span>',
+  creator:'<span class="tag pill-warn">butuh wallet deployer/creator</span>'
+};
 
 function render(){
-  const claimable = TOKENS.filter(t=>t.state==="claimable");
-  const nofee = TOKENS.filter(t=>t.state==="nofee");
-  const legacy = TOKENS.filter(t=>t.state==="legacy");
-  const launched = new Set([...claimable,...nofee,...legacy].map(t=>t.owner.toLowerCase()));
-  const nolaunch = ADDRESSES.filter(a=>!launched.has(a.toLowerCase()));
+  const claimable = TOKENS.filter(t=>t.state==="claimable" && !t.legacy);
+  const legacy    = TOKENS.filter(t=>t.state==="claimable" && t.legacy);
+  const nofee     = TOKENS.filter(t=>t.state==="nofee");
+  const failed    = TOKENS.filter(t=>t.state==="failed");
+  const launched  = new Set([...claimable,...legacy,...nofee,...failed].map(t=>t.owner.toLowerCase()));
+  const nolaunch  = ADDRESSES.filter(a=>!launched.has(a.toLowerCase()));
 
   $("#naddr").textContent = ADDRESSES.length;
   $("#nlaunch").textContent = launched.size;
-  $("#nclaim").textContent = new Set(claimable.map(t=>t.owner.toLowerCase())).size;
+  $("#nclaim").textContent = new Set([...claimable,...legacy].map(t=>t.owner.toLowerCase())).size;
   $("#nnolaunch").textContent = nolaunch.length;
 
   const root = $("#secs"); root.replaceChildren();
 
-  // ---- claimable, satu section per SUMBER ----
-  for(const key of ["apestore","noxa","pons","clanker"]){
-    const rows = claimable.filter(t=>t.source===key);
-    if(!rows.length) continue;
-    root.appendChild(section(`Bisa klaim — ${SRC_LABEL[key]}`, rows, true, "pill-ok", PERM_BADGE[rows[0].perm]));
-  }
-  const nofeeRows = nofee;
-  if(nofeeRows.length) root.appendChild(section("Pernah launch — belum ada fee", nofeeRows, false, "pill-warn", ""));
-  if(legacy.length) root.appendChild(section("Clanker legacy (butuh jalur klaim terpisah)", legacy, false, "pill-warn", PERM_BADGE.legacy));
+  const apeRows = claimable.filter(t=>t.source==="apestore");
+  if(apeRows.length) root.appendChild(section("Bisa klaim — ApeStore", apeRows, true, "pill-ok", PERM_BADGE.free));
 
-  // ---- failed: dua jenis, section terpisah ----
+  const clankerV4 = claimable.filter(t=>t.source==="clanker");
+  if(clankerV4.length) root.appendChild(section("Bisa klaim — Clanker v4", clankerV4, true, "pill-ok", PERM_BADGE.free));
+
+  if(legacy.length){
+    const box = section("Clanker legacy (v0–v3.1) — butuh wallet deployer/creator", legacy, true, "pill-warn", PERM_BADGE.creator);
+    const note = el("p","note","Legacy hanya bisa diklaim oleh wallet deployer/creator token (atau admin fee). Wallet lain akan gagal di tahap tx.");
+    box.appendChild(note);
+    root.appendChild(box);
+  }
+
+  if(nofee.length) root.appendChild(section("Pernah launch — belum ada fee", nofee, false, "pill-warn", ""));
+  if(failed.length) root.appendChild(section("Gagal verifikasi — bisa di-rescan", failed, false, "pill-err", ""));
   if(FAILCLAIM.length) root.appendChild(sectionList("Gagal klaim (tx revert) — bisa di-retry", FAILCLAIM, "pill-err"));
   if(SCANFAIL.length) root.appendChild(sectionList("Gagal dipindai (RPC/API error) — bisa di-rescan", SCANFAIL, "pill-err"));
-
-  if(nolaunch.length) root.appendChild(sectionList("Tidak ada interaksi launch (ApeStore/Noxa/Pons/Clanker)", nolaunch.map(a=>({owner:a})), "mut"));
+  if(nolaunch.length) root.appendChild(sectionList("Tidak ada interaksi launch (ApeStore/Clanker)", nolaunch.map(a=>({owner:a})), "mut"));
 
   $("#rescard").classList.remove("hide");
   refreshButtons();
@@ -344,16 +408,17 @@ function section(title, rows, withCheckbox, cls, badgeHtml){
   rows.forEach(t=>{
     const tr = el("tr");
     if(withCheckbox){
-      const td = el("td"); const cb = el("input"); cb.type="checkbox"; cb.checked = t.perm==="free" || t.perm==="creator";
-      cb.disabled = t.perm==="legacy"; cb.dataset.row = TOKENS.indexOf(t); cb.onchange = refreshButtons; td.appendChild(cb); tr.appendChild(td);
+      const td = el("td"); const cb = el("input"); cb.type="checkbox"; cb.checked = true;
+      cb.dataset.row = TOKENS.indexOf(t); cb.onchange = refreshButtons; td.appendChild(cb); tr.appendChild(td);
     }
     tr.appendChild(el("td","mono",t.owner));
     tr.appendChild(el("td",null,t.sourceLabel));
     const tok = el("td","mono",(t.symbol? t.symbol+" · ":"")+(t.token||"").slice(0,10)+"…");
-    if(t.token){ const a=el("a",null,"↗"); a.href=(CHAINS[t.chain]?CHAINS[t.chain].ScannerUrl:"#")+"/address/"+t.token; a.target="_blank"; a.rel="noopener"; tok.append(document.createTextNode(" "),a); }
+    if(t.token){ const a=el("a",null,"↗"); a.href=CHAIN.ScannerUrl+"/address/"+t.token; a.target="_blank"; a.rel="noopener"; tok.append(document.createTextNode(" "),a); }
     tr.appendChild(tok);
     tr.appendChild(el("td","mono",t.version||"—"));
     const st = el("td"); st.appendChild(el("span","tag "+cls, t.state==="claimable"?"bisa klaim":t.state));
+    if(t.detail){ const d=el("div","mut",String(t.detail).slice(0,90)); d.style.fontSize="10px"; st.appendChild(d); }
     tr.appendChild(st);
     const act = el("td"); act.appendChild(copyBtn(t.owner)); tr.appendChild(act);
     tb2.appendChild(tr);
@@ -400,26 +465,30 @@ function setStatus(row, txt, cls, detail){
   if(!tr) return;
   const td = tr.children[tr.children.length-1];
   td.replaceChildren(el("span","tag "+(cls||""), txt));
-  if(detail && cls==="pill-err"){ const d=el("div","mut",detail.slice(0,100)); d.style.fontSize="10px"; td.appendChild(d); }
+  if(detail && cls==="pill-err"){ const d=el("div","mut",String(detail).slice(0,100)); d.style.fontSize="10px"; td.appendChild(d); }
 }
 
 /* ================= claim ================= */
-const chainParams = id => { const c=CHAINS[id]; return { chainId:"0x"+id.toString(16), chainName:c.Name, nativeCurrency:{name:c.NativeToken,symbol:c.NativeToken,decimals:18}, rpcUrls:[c.PublicRpc], blockExplorerUrls:[c.ScannerUrl] }; };
-async function ensureChain(id){
+const chainParams = () => ({
+  chainId:"0x"+BASE_CHAIN_ID.toString(16), chainName:CHAIN.Name,
+  nativeCurrency:{name:CHAIN.NativeToken,symbol:CHAIN.NativeToken,decimals:18},
+  rpcUrls:[CHAIN.PublicRpc], blockExplorerUrls:[CHAIN.ScannerUrl]
+});
+async function ensureChain(){
   let provider = new ethers.BrowserProvider(window.ethereum);
   let net = await provider.getNetwork();
-  if(Number(net.chainId)===id) return provider;
-  const hex="0x"+id.toString(16);
+  if(Number(net.chainId)===BASE_CHAIN_ID) return provider;
+  const hex = "0x"+BASE_CHAIN_ID.toString(16);
   try{ await window.ethereum.request({method:"wallet_switchEthereumChain", params:[{chainId:hex}]}); }
-  catch(e){ if(e && (e.code===4902 || e.code===-32603)) await window.ethereum.request({method:"wallet_addEthereumChain", params:[chainParams(id)]}); else throw e; }
+  catch(e){ if(e && (e.code===4902 || e.code===-32603)) await window.ethereum.request({method:"wallet_addEthereumChain", params:[chainParams()]}); else throw e; }
   provider = new ethers.BrowserProvider(window.ethereum);
   net = await provider.getNetwork();
-  if(Number(net.chainId)!==id) throw new Error(`wallet masih di chain ${net.chainId}`);
+  if(Number(net.chainId)!==BASE_CHAIN_ID) throw new Error(`wallet masih di chain ${net.chainId}`);
   return provider;
 }
 
 $("#claimsel").onclick = ()=>runClaim(selectedRows());
-$("#claimall").onclick = ()=>runClaim(TOKENS.filter(t=>t.state==="claimable" && t.perm!=="legacy"));
+$("#claimall").onclick = ()=>runClaim(TOKENS.filter(t=>t.state==="claimable"));
 
 async function runClaim(rows){
   if(!ACCOUNT){ alert("Connect wallet dulu."); return; }
@@ -428,49 +497,67 @@ async function runClaim(rows){
   $("#claimsel").disabled = $("#claimall").disabled = true;
   try{ $("#log").scrollIntoView({behavior:"smooth",block:"nearest"}); }catch(e){}
 
-  const byChain = {};
-  for(const t of rows) (byChain[t.chain] ||= []).push(t);
   let ok=0, fail=0;
+  let provider;
+  try{ provider = await ensureChain(); }
+  catch(e){
+    const m = errMsg(e); log(`✗ chain: ${m}`);
+    rows.forEach(t=>{ fail++; FAILCLAIM.push({owner:t.owner, sourceLabel:t.sourceLabel, err:"chain: "+m}); setStatus(t,"chain error","pill-err",m); });
+    $("#cstat").textContent = `claimed ${ok} · failed ${fail}`;
+    $("#claimsel").disabled = $("#claimall").disabled = false;
+    render(); return;
+  }
+  const signer = await provider.getSigner();
 
-  for(const [cidS, list] of Object.entries(byChain)){
-    const cid=Number(cidS), c=CHAINS[cid];
-    log(`\n— ${c.Name} (${cid}) — ${list.length} token`);
-    let provider;
-    try{ provider = await ensureChain(cid); }
-    catch(e){ const m=errMsg(e); log(`  ✗ chain: ${m}`); list.forEach(t=>{ fail++; FAILCLAIM.push({owner:t.owner, sourceLabel:t.sourceLabel, err:"chain: "+m}); setStatus(t,"chain error","pill-err",m); }); continue; }
-    const signer = await provider.getSigner();
-
-    for(const t of list){
-      setStatus(t,"claiming…","pill-warn");
-      try{
-        let tx;
-        if(t.kind==="feelocker"){
-          const ctr = new ethers.Contract(t.target, FEE_LOCKER_IFACE, signer);
-          log(`  ${t.sourceLabel} ${t.symbol||""} ${t.token}`);
-          tx = await ctr.claim(t.feeOwner, t.token);
-        } else if(t.kind==="locker"){
-          const ctr = new ethers.Contract(t.target, LOCKER_IFACE, signer);
-          log(`  ${t.sourceLabel} ${t.token}`);
-          tx = await ctr.collectFees(t.token);
+  for(const t of rows){
+    setStatus(t,"claiming…","pill-warn");
+    try{
+      let tx;
+      if(t.kind==="router"){
+        const ctr = new ethers.Contract(t.target, ROUTER_IFACE, signer);
+        log(`  ApeStore ${t.version} ${t.symbol||""} ${t.token}`);
+        tx = await ctr.collectFees(t.token);
+      } else if(t.kind==="feelocker"){
+        const ctr = new ethers.Contract(t.target, FEE_LOCKER_IFACE, signer);
+        log(`  Clanker v4 ${t.symbol||""} ${t.token}`);
+        tx = await ctr.claim(t.feeOwner, t.token);
+      } else if(t.kind==="factory"){
+        const ctr = new ethers.Contract(t.target, FACTORY_IFACE, signer);
+        log(`  Clanker ${t.version} (legacy) ${t.symbol||""} ${t.token}`);
+        tx = await ctr.claimRewards(t.token);
+      } else if(t.kind==="locker"){
+        log(`  Clanker ${t.version} (legacy) ${t.symbol||""} ${t.token}`);
+        const pid = BigInt(t.positionId||0);
+        const ctr = new ethers.Contract(t.target, LOCKER_IFACE, signer);
+        let useMeta = false;
+        try{ await ctr.collectFees.staticCall(t.feeOwner, pid); }
+        catch(e){ useMeta = true; }
+        if(useMeta){
+          const meta = new ethers.Contract(t.target, META_LOCKER_IFACE, signer);
+          tx = await meta.collectFees(pid);
         } else {
-          const ctr = new ethers.Contract(t.target, ROUTER_IFACE, signer);
-          log(`  ${t.sourceLabel} ${t.symbol||""} ${t.token}`);
-          tx = await ctr.collectFees(t.token);
+          tx = await ctr.collectFees(t.feeOwner, pid);
         }
-        log(`    tx ${tx.hash}`);
-        await tx.wait();
-        setStatus(t,"claimed","pill-ok"); ok++;
-      }catch(e){
-        const m=errMsg(e); log(`    ✗ ${m}`);
-        FAILCLAIM.push({owner:t.owner, sourceLabel:t.sourceLabel, err:m});
-        setStatus(t,"failed","pill-err",m); fail++;
+      } else {
+        throw new Error("jenis klaim tidak dikenal");
       }
+      log(`    tx ${tx.hash}`);
+      await tx.wait();
+      setStatus(t,"claimed","pill-ok"); ok++;
+    }catch(e){
+      const m = errMsg(e); log(`    ✗ ${m}`);
+      FAILCLAIM.push({owner:t.owner, sourceLabel:t.sourceLabel, err:m});
+      setStatus(t,"failed","pill-err",m); fail++;
     }
   }
   $("#cstat").textContent = `claimed ${ok} · failed ${fail}`;
   $("#claimsel").disabled = $("#claimall").disabled = false;
   render();
 }
+
+/* ================= init ================= */
+$("#rpc").value = savedRpc();
+updateRpcStat();
 </script>
 </body>
 </html>
