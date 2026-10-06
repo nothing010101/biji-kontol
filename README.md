@@ -27,6 +27,10 @@ Base RPC URL. It is stored in the browser (`localStorage`) and used for all on-c
 
 Public Base RPCs send `access-control-allow-origin: *`, so reads go straight from the browser — no RPC proxy needed.
 
+**Rate limit:** all RPC calls are serialized with a minimum **400 ms** gap between requests, and scans are
+spaced **400 ms** per address, so a long address list does not trip Alchemy's rate limit. Adjust
+`RPC_MIN_GAP_MS` / `SCAN_DELAY_MS` at the top of the script if you need a different cadence.
+
 ## Why a proxy is needed
 
 `ape.store` and `clanker.world` APIs return **no CORS headers**, so the browser cannot call them cross-origin.

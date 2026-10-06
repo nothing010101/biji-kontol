@@ -59,7 +59,7 @@
       <button id="rpcclear" class="sec">Hapus</button>
       <span id="rpcstat" class="mut"></span>
     </div>
-    <p class="note" style="margin:8px 0 0">Disimpan di browser (localStorage). Kalau kosong → RPC publik Base.</p>
+    <p class="note" style="margin:8px 0 0">Disimpan di browser (localStorage). Kalau kosong → RPC publik Base. Scan diberi jeda 400ms/alamat &amp; 400ms antar request RPC supaya tidak kena limit Alchemy.</p>
   </div>
 
   <div class="card">
@@ -167,14 +167,30 @@ $("#rpcsave").onclick = ()=>{
 $("#rpcclear").onclick = ()=>{ $("#rpc").value=""; localStorage.removeItem(RPC_LS_KEY); updateRpcStat(); };
 $("#rpc").addEventListener("change", ()=>{ const v=$("#rpc").value.trim(); if(v) localStorage.setItem(RPC_LS_KEY,v); updateRpcStat(); });
 
+// Anti rate-limit Alchemy: minimal 400ms jeda antar request RPC (di-serialize).
+const RPC_MIN_GAP_MS = 400;
+const SCAN_DELAY_MS  = 400;   // jeda antar alamat saat scan
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+
 let rpcId = 1;
-async function rpc(method, params){
+let lastRpcAt = 0;
+let rpcQueue = Promise.resolve();
+
+async function rpcPaced(method, params){
+  const wait = lastRpcAt + RPC_MIN_GAP_MS - Date.now();
+  if(wait > 0) await sleep(wait);
+  lastRpcAt = Date.now();
   const r = await fetch(rpcUrl(), { method:"POST", headers:{"content-type":"application/json"},
     body: JSON.stringify({jsonrpc:"2.0", id: rpcId++, method, params}) });
   if(!r.ok) throw new Error(`RPC HTTP ${r.status}`);
   const j = await r.json();
   if(j.error) throw new Error(j.error.message || JSON.stringify(j.error));
   return j.result;
+}
+function rpc(method, params){
+  const task = rpcQueue.then(() => rpcPaced(method, params));
+  rpcQueue = task.catch(() => {});
+  return task;
 }
 const call = (to, data, from) => rpc("eth_call", [ from ? {to, data, from} : {to, data}, "latest"]);
 
@@ -239,6 +255,7 @@ $("#scan").onclick = async ()=>{
   $("#sstat").textContent = "memuat config ApeStore…";
   await loadApeConfig();
   for(let i=0;i<list.length;i++){
+    if(i>0) await sleep(SCAN_DELAY_MS);
     $("#sstat").textContent = `scanning ${i+1}/${list.length}…`;
     await scanOne(list[i]);
   }
